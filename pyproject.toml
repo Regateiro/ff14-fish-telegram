@@ -6,7 +6,7 @@ packages = [{ include = "ff14_fish_telegram", from = "src" }]
 
 [tool.poetry.dependencies]
 python = ">=3.12"
-python-telegram-bot = ">=20,<20.7"
+python-telegram-bot = ">=21,<22"
 eorzeaenv = ">=2.2,<3"
 aiohttp = ">=3,<4"
 apscheduler = ">=3,<4"
