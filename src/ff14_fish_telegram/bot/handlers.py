@@ -62,7 +62,7 @@ async def caught(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not caught_ids:
             await update.message.reply_text("You haven't caught any fish yet.")
             return
-        names = sorted(fish_data.fish[fid].name_en for fid in caught_ids if fid in fish_data.fish)
+        names = sorted(f.name_en for f in fish_data.fish.values() if f.id in caught_ids)
         if not names:
             await update.message.reply_text("No named fish found in caught list.")
             return

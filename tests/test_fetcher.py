@@ -76,7 +76,7 @@ class TestBuildFishData:
     def test_fallback_name_when_no_info(self, sample_js_content: str):
         parsed = parse_data_js(sample_js_content)
         data = build_fish_data(parsed, {})
-        assert data.fish[4898].name_en == ""
+        assert data.fish[4898].name_en == "Fish #4898"
 
     def test_fishing_spots(self, sample_js_content: str):
         parsed = parse_data_js(sample_js_content)

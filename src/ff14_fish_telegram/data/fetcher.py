@@ -1,5 +1,6 @@
 """Fetch, parse, and deserialize FFXIV fish data from the ff14-fish-tracker-app website."""
 
+import logging
 import re
 from datetime import datetime, timezone
 
@@ -14,6 +15,8 @@ from ff14_fish_telegram.data.models import (
     Item,
     WeatherRate,
 )
+
+logger = logging.getLogger(__name__)
 
 FISH_INFO_URL = DATA_URL.replace("data.js", "fish_info_data.js")
 
@@ -52,7 +55,7 @@ def _parse_fish(raw: dict, name_en: str = "") -> Fish:
     """Convert a raw dict from the JS data into a Fish dataclass instance."""
     return Fish(
         id=raw["_id"],
-        name_en=name_en or raw.get("name_en", ""),
+        name_en=name_en or raw.get("name_en", "") or f"Fish #{raw['_id']}",
         start_hour=float(raw["startHour"]),
         end_hour=float(raw["endHour"]),
         patch=float(raw.get("patch", 0)),
@@ -161,8 +164,8 @@ async def load_fish_data(
     try:
         raw_info = await fetch_raw_data(info_url)
         fish_names = parse_fish_info_js(raw_info)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Failed to fetch fish names from %s: %s", info_url, e)
     return build_fish_data(parsed, fish_names)
 
 
