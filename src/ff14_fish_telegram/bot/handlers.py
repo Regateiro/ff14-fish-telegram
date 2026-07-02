@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
+from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes
 
 from ff14_fish_telegram.data.availability import (
     CatchableWindow,
@@ -13,6 +13,7 @@ from ff14_fish_telegram.data.availability import (
 from ff14_fish_telegram.data.models import Fish, FishData
 from ff14_fish_telegram.db.database import (
     get_caught_fish_ids,
+    is_caught,
     mark_caught,
     mark_caught_many,
     mark_uncaught,
@@ -200,11 +201,42 @@ async def day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-def get_handlers() -> list[CommandHandler]:
-    """Return all command handlers to register with the Telegram application."""
+async def caught_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle inline button presses to mark a fish as caught from a reminder notification."""
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        fish_id = int(query.data.split(":", 1)[1])
+    except (IndexError, ValueError):
+        await query.edit_message_text("Invalid callback data.")
+        return
+
+    user_id = query.from_user.id
+    fish_data = _get_fish_data(context)
+    if fish_data is None:
+        await query.edit_message_text("Fish data not loaded yet. Try again shortly.")
+        return
+
+    fish = fish_data.fish.get(fish_id)
+    if fish is None:
+        await query.edit_message_text("Fish not found in data.")
+        return
+
+    if is_caught(user_id, fish_id):
+        await query.edit_message_text(f"'{fish.name_en}' was already marked as caught.")
+        return
+
+    mark_caught(user_id, fish_id)
+    await query.edit_message_text(f"Marked '{fish.name_en}' as caught! ✅")
+
+
+def get_handlers() -> list:
+    """Return all handlers to register with the Telegram application."""
     return [
         CommandHandler("start", start),
         CommandHandler("caught", caught),
         CommandHandler("uncaught", uncaught),
         CommandHandler("day", day),
+        CallbackQueryHandler(caught_callback, pattern=r"^caught:\d+$"),
     ]

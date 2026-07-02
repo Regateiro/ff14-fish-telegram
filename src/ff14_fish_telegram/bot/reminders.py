@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 
 from ff14_fish_telegram.data.availability import get_next_window
@@ -58,11 +59,13 @@ async def check_reminders(application: Application) -> None:
                         f"Location: {zone_name}\n"
                         f"Starts in ~{remaining // 60:.0f} minutes."
                     )
+                    btn = InlineKeyboardButton("Mark caught ✅", callback_data=f"caught:{fish.id}")
                     try:
                         await application.bot.send_message(
                             chat_id=user_id,
                             text=msg,
                             parse_mode="Markdown",
+                            reply_markup=InlineKeyboardMarkup([[btn]]),
                         )
                         mark_reminder_sent(user_id, fish.id, ws_key)
                     except Exception:
