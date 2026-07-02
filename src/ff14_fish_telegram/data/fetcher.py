@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import aiohttp
 import demjson3
 
-from ff14_fish_telegram.config import DATA_CACHE_PATH, DATA_URL
+from ff14_fish_telegram.config import DATA_URL
 from ff14_fish_telegram.data.models import (
     Fish,
     FishData,
@@ -96,7 +96,7 @@ def _parse_item(raw: dict) -> Item:
     )
 
 
-def _parse_weather_rate(k: str, raw: dict) -> WeatherRate:
+def _parse_weather_rate(raw: dict) -> WeatherRate:
     """Convert a raw dict into a WeatherRate dataclass instance."""
     return WeatherRate(
         map_id=raw["map_id"],
@@ -112,7 +112,10 @@ def build_fish_data(parsed: dict, fish_names: dict[int, str] | None = None) -> F
     Fishing spots missing required keys (territory_id, placename_id) are skipped.
     """
     fish_names = fish_names or {}
-    fish = {int(k): _parse_fish(v, fish_names.get(int(k), "")) for k, v in parsed["FISH"].items()}
+    fish = {}
+    for k, v in parsed["FISH"].items():
+        fid = int(k)
+        fish[fid] = _parse_fish(v, fish_names.get(fid, ""))
 
     from_raw = parsed.get("FISHING_SPOTS", {})
     supply_keys = ("territory_id", "placename_id")
@@ -123,7 +126,7 @@ def build_fish_data(parsed: dict, fish_names: dict[int, str] | None = None) -> F
 
     items = {int(k): _parse_item(v) for k, v in parsed.get("ITEMS", {}).items()}
     weather_rates = {
-        int(k): _parse_weather_rate(k, v) for k, v in parsed.get("WEATHER_RATES", {}).items()
+        int(k): _parse_weather_rate(v) for k, v in parsed.get("WEATHER_RATES", {}).items()
     }
     weather_types = {
         int(k): v.get("name_en", "") for k, v in parsed.get("WEATHER_TYPES", {}).items()
@@ -161,11 +164,6 @@ async def load_fish_data(
     except Exception:
         pass
     return build_fish_data(parsed, fish_names)
-
-
-def save_cache(data: FishData, path: str | None = None) -> None:
-    """Stub: persist FishData to a JSON cache file (not yet implemented)."""
-    path = path or str(DATA_CACHE_PATH)
 
 
 def _fish_to_dict(f: Fish) -> dict:
@@ -243,7 +241,7 @@ def from_json_serializable(d: dict) -> FishData:
     fishing_spots = {int(k): _parse_fishing_spot(v) for k, v in d.get("fishing_spots", {}).items()}
     items = {int(k): _parse_item(v) for k, v in d.get("items", {}).items()}
     wrs = d.get("weather_rates", {})
-    weather_rates = {int(k): _parse_weather_rate(k, v) for k, v in wrs.items()}
+    weather_rates = {int(k): _parse_weather_rate(v) for k, v in wrs.items()}
     weather_types = {int(k): v for k, v in d.get("weather_types", {}).items()}
     regions = {int(k): v for k, v in d.get("regions", {}).items()}
     zones = {int(k): v for k, v in d.get("zones", {}).items()}

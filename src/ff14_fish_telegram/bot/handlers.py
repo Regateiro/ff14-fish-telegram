@@ -14,7 +14,9 @@ from ff14_fish_telegram.data.models import Fish, FishData
 from ff14_fish_telegram.db.database import (
     get_caught_fish_ids,
     mark_caught,
+    mark_caught_many,
     mark_uncaught,
+    mark_uncaught_many,
 )
 
 BOT_DATA_KEY = "fish_data"
@@ -71,8 +73,7 @@ async def caught(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = " ".join(args).strip()
     if _sanitize(query) == "all":
         all_ids = list(fish_data.fish.keys())
-        for fid in all_ids:
-            mark_caught(user_id, fid)
+        mark_caught_many(user_id, all_ids)
         await update.message.reply_text(f"Marked all {len(all_ids)} fish as caught.")
         return
 
@@ -121,8 +122,7 @@ async def uncaught(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = " ".join(args).strip()
     if _sanitize(query) == "all":
         all_ids = list(fish_data.fish.keys())
-        for fid in all_ids:
-            mark_uncaught(user_id, fid)
+        mark_uncaught_many(user_id, all_ids)
         await update.message.reply_text(f"Marked all {len(all_ids)} fish as uncaught.")
         return
 

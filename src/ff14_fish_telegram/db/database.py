@@ -123,6 +123,24 @@ def mark_reminder_sent(user_id: int, fish_id: int, window_start_eorzea: int) -> 
         conn.execute(_SENT_INSERT_SQL, (user_id, fish_id, window_start_eorzea))
 
 
+def mark_caught_many(user_id: int, fish_ids: list[int]) -> None:
+    """Atomically mark multiple fish as caught for a user in a single transaction."""
+    with get_db() as conn:
+        conn.executemany(
+            "INSERT OR REPLACE INTO caught_fish (user_id, fish_id) VALUES (?, ?)",
+            [(user_id, fid) for fid in fish_ids],
+        )
+
+
+def mark_uncaught_many(user_id: int, fish_ids: list[int]) -> None:
+    """Atomically mark multiple fish as uncaught for a user in a single transaction."""
+    with get_db() as conn:
+        conn.executemany(
+            "DELETE FROM caught_fish WHERE user_id = ? AND fish_id = ?",
+            [(user_id, fid) for fid in fish_ids],
+        )
+
+
 def cleanup_old_reminders(days: int = 7) -> None:
     """Delete sent_reminders rows older than the given number of days."""
     with get_db() as conn:

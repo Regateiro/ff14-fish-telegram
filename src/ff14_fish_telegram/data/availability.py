@@ -44,11 +44,6 @@ def _eorzea_day_floor(eorzea_ts: float) -> float:
     return (eorzea_ts // 86400) * 86400
 
 
-def _eorzea_hour_floor(eorzea_ts: float) -> float:
-    """Round an Eorzea timestamp down to the start of its Eorzea hour (3600 ET seconds)."""
-    return (eorzea_ts // 3600) * 3600
-
-
 def _weather_period_start_eorzea(eorzea_ts: float) -> float:
     """Return the Eorzea timestamp of the 8-hour weather period containing eorzea_ts."""
     bell = eorzea_ts / 3600.0
@@ -124,7 +119,7 @@ def _find_weather_windows(
     cache: dict[float, int | None] = {}
     prev_weather: int | None = None
 
-    for _ in range(limit):
+    for i in range(limit):
         period_earth_ts = last_earth_ts
         period_end_earth_ts = period_earth_ts + _WEATHER_PERIOD_EARTH_S
         last_earth_ts = period_end_earth_ts
@@ -137,8 +132,12 @@ def _find_weather_windows(
         if current_weather is None:
             continue
 
-        # Enforce previous-weather constraint: skip if preceding weather doesn't match
-        if previous_weather_set and prev_weather is not None:
+        if previous_weather_set:
+            if prev_weather is None:
+                # First iteration: prime prev_weather and skip — we need a preceding period
+                # to validate the previous-weather condition.
+                prev_weather = current_weather
+                continue
             if not _weather_matches(prev_weather, previous_weather_set):
                 prev_weather = current_weather
                 continue

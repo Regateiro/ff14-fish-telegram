@@ -3,7 +3,7 @@
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from telegram.ext import ApplicationBuilder
+from telegram.ext import Application, ApplicationBuilder
 
 from ff14_fish_telegram.bot.handlers import BOT_DATA_KEY, get_handlers
 from ff14_fish_telegram.bot.reminders import check_reminders
@@ -21,7 +21,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def refresh_fish_data(application) -> None:
+async def refresh_fish_data(application: Application) -> None:
     """Fetch the latest fish/weather data from the tracker site and store it in bot_data."""
     logger.info("Refreshing fish data from tracker site...")
     try:
@@ -32,7 +32,7 @@ async def refresh_fish_data(application) -> None:
         logger.error(f"Failed to refresh fish data: {e}")
 
 
-async def reminder_job(application) -> None:
+async def reminder_job(application: Application) -> None:
     """Wrapper around check_reminders that logs failures without crashing the scheduler."""
     try:
         await check_reminders(application)
@@ -40,7 +40,7 @@ async def reminder_job(application) -> None:
         logger.error(f"Reminder check failed: {e}")
 
 
-async def post_init(application) -> None:
+async def post_init(application: Application) -> None:
     """Run once after the bot starts: initialize DB, load fish data, and start background jobs.
 
     Scheduled jobs:
@@ -76,7 +76,7 @@ async def post_init(application) -> None:
     application.bot_data["scheduler"] = scheduler
 
 
-async def post_stop(application) -> None:
+async def post_stop(application: Application) -> None:
     """Shut down the APScheduler when the bot stops."""
     scheduler = application.bot_data.get("scheduler")
     if scheduler:
