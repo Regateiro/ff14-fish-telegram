@@ -175,8 +175,11 @@ async def day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     upcoming.sort(key=lambda x: x[1].start_earth)
 
-    lines = []
-    for name, window, fish in upcoming[:50]:
+    await update.message.reply_text(
+        f"Uncaught fish available in the next 24h ({len(upcoming)}):"
+    )
+
+    for name, window, fish in upcoming:
         start_local = window.start_earth.strftime("%H:%M UTC")
         start_hour = int(window.start_eorzea / 3600) % 24
         end_hour = int(window.end_eorzea / 3600) % 24
@@ -188,17 +191,20 @@ async def day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             weather_names = [fish_data.weather_types.get(w, str(w)) for w in fish.weather_set]
             weather_parts.append("Weather: " + ", ".join(weather_names))
         if fish.previous_weather_set:
-            prev_names = [fish_data.weather_types.get(w, str(w)) for w in fish.previous_weather_set]
+            prev_names = [
+                fish_data.weather_types.get(w, str(w))
+                for w in fish.previous_weather_set
+            ]
             weather_parts.append("Prev: " + ", ".join(prev_names))
         weather_str = f" [{', '.join(weather_parts)}]" if weather_parts else ""
 
         et_range = f"ET {start_hour:02d}:00-{end_hour:02d}:00"
-        lines.append(f"  • {name} @ {start_local} ({et_range}) {zone_name}{weather_str}")
-
-    extra = f"\n...and {len(upcoming) - 50} more" if len(upcoming) > 50 else ""
-    await update.message.reply_text(
-        "Uncaught fish available in the next 24h:\n" + "\n".join(lines) + extra
-    )
+        msg = (
+            f"🎣 *{name}*\n"
+            f"⏰ {start_local} ({et_range})\n"
+            f"📍 {zone_name}{weather_str}"
+        )
+        await update.message.reply_text(msg)
 
 
 async def caught_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

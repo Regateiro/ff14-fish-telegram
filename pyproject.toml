@@ -18,6 +18,7 @@ pytest = ">=9.1.1,<10"
 pytest-asyncio = ">=1.4.0,<2"
 pytest-mock = ">=3.15.1,<4"
 ruff = ">=0.15.20,<0.16"
+pytest-cov = ">=6,<7"
 
 [tool.poetry.scripts]
 ff14-fish-telegram = "ff14_fish_telegram.__main__:main"
