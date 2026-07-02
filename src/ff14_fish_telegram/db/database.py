@@ -1,3 +1,5 @@
+"""SQLite database layer for tracking caught fish and sent reminders per user."""
+
 import sqlite3
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -6,6 +8,7 @@ from ff14_fish_telegram.config import DATABASE_PATH
 
 
 def get_connection() -> sqlite3.Connection:
+    """Create and return a new SQLite connection with WAL mode and foreign keys."""
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -14,6 +17,7 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db() -> None:
+    """Create the caught_fish and sent_reminders tables if they don't exist."""
     with get_connection() as conn:
         conn.execute(
             """
@@ -40,6 +44,7 @@ def init_db() -> None:
 
 @contextmanager
 def get_db() -> Generator[sqlite3.Connection, None, None]:
+    """Context manager providing a committed connection, with auto-rollback on error."""
     conn = get_connection()
     try:
         yield conn
@@ -52,6 +57,7 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 
 
 def mark_caught(user_id: int, fish_id: int) -> None:
+    """Record that a user has caught a specific fish (upsert by primary key)."""
     with get_db() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO caught_fish (user_id, fish_id) VALUES (?, ?)",
@@ -60,6 +66,7 @@ def mark_caught(user_id: int, fish_id: int) -> None:
 
 
 def mark_uncaught(user_id: int, fish_id: int) -> None:
+    """Remove a fish from a user's caught list."""
     with get_db() as conn:
         conn.execute(
             "DELETE FROM caught_fish WHERE user_id = ? AND fish_id = ?",
@@ -68,6 +75,7 @@ def mark_uncaught(user_id: int, fish_id: int) -> None:
 
 
 def is_caught(user_id: int, fish_id: int) -> bool:
+    """Return True if the user has caught the given fish."""
     with get_db() as conn:
         row = conn.execute(
             "SELECT 1 FROM caught_fish WHERE user_id = ? AND fish_id = ?",
@@ -77,6 +85,7 @@ def is_caught(user_id: int, fish_id: int) -> bool:
 
 
 def get_caught_fish_ids(user_id: int) -> set[int]:
+    """Return the set of fish IDs the user has caught."""
     with get_db() as conn:
         rows = conn.execute(
             "SELECT fish_id FROM caught_fish WHERE user_id = ?",
@@ -86,11 +95,13 @@ def get_caught_fish_ids(user_id: int) -> set[int]:
 
 
 def get_all_user_ids() -> set[int]:
+    """Return all distinct user IDs that have at least one caught fish."""
     with get_db() as conn:
         rows = conn.execute("SELECT DISTINCT user_id FROM caught_fish").fetchall()
         return {row["user_id"] for row in rows}
 
 
+# Prepared SQL statements for reminder deduplication lookups
 _SENT_CHECK_SQL = (
     "SELECT 1 FROM sent_reminders WHERE user_id = ? AND fish_id = ? AND window_start_eorzea = ?"
 )
@@ -100,17 +111,20 @@ _SENT_INSERT_SQL = (
 
 
 def reminder_sent(user_id: int, fish_id: int, window_start_eorzea: int) -> bool:
+    """Check whether a reminder was already sent for this user/fish/window combination."""
     with get_db() as conn:
         row = conn.execute(_SENT_CHECK_SQL, (user_id, fish_id, window_start_eorzea)).fetchone()
         return row is not None
 
 
 def mark_reminder_sent(user_id: int, fish_id: int, window_start_eorzea: int) -> None:
+    """Record that a reminder was sent to avoid duplicate notifications."""
     with get_db() as conn:
         conn.execute(_SENT_INSERT_SQL, (user_id, fish_id, window_start_eorzea))
 
 
 def cleanup_old_reminders(days: int = 7) -> None:
+    """Delete sent_reminders rows older than the given number of days."""
     with get_db() as conn:
         conn.execute(
             "DELETE FROM sent_reminders WHERE sent_at < datetime('now', ?)",

@@ -1,3 +1,5 @@
+"""Tests for the JS data parser and FishData builder."""
+
 from ff14_fish_telegram.data.fetcher import (
     build_fish_data,
     parse_data_js,
@@ -6,6 +8,8 @@ from ff14_fish_telegram.data.fetcher import (
 
 
 class TestParseDataJs:
+    """Tests for extracting the DATA object from the main JS file."""
+
     def test_parses_valid_js(self, sample_js_content: str):
         parsed = parse_data_js(sample_js_content)
         assert "FISH" in parsed
@@ -25,6 +29,8 @@ class TestParseDataJs:
 
 
 class TestParseFishInfo:
+    """Tests for extracting fish names from the FISH_INFO array."""
+
     def test_parses_fish_info(self, sample_info_content: str):
         names = parse_fish_info_js(sample_info_content)
         assert names[4898] == "Merlthor Goby"
@@ -38,6 +44,8 @@ class TestParseFishInfo:
 
 
 class TestBuildFishData:
+    """Tests for assembling FishData from parsed JS dictionaries."""
+
     def test_builds_fish_data(self, sample_js_content: str, sample_info_content: str):
         parsed = parse_data_js(sample_js_content)
         names = parse_fish_info_js(sample_info_content)

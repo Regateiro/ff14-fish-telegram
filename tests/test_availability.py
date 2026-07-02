@@ -1,3 +1,5 @@
+"""Tests for Eorzea time conversion, fish model properties, and catchable window computation."""
+
 from datetime import datetime, timezone
 
 from ff14_fish_telegram.data.availability import (
@@ -10,6 +12,8 @@ from ff14_fish_telegram.data.availability import (
 
 
 class TestTimeConversion:
+    """Tests for earth_to_eorzea and eorzea_to_earth roundtrip conversion."""
+
     def test_earth_to_eorzea(self):
         dt = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         et = earth_to_eorzea(dt)
@@ -28,6 +32,8 @@ class TestTimeConversion:
 
 
 class TestFishModelProperties:
+    """Tests for Fish.always_available and Fish.has_intuition_or_predator."""
+
     def test_always_available_true(self, sample_fish):
         f = sample_fish
         f.start_hour = 0
@@ -74,6 +80,8 @@ class TestFishModelProperties:
 
 
 class TestCatchableWindows:
+    """Tests for compute_catchable_windows and get_next_window."""
+
     def test_always_available_fish_returns_window(self, sample_fish, sample_fish_data):
         f = sample_fish
         f.start_hour = 0

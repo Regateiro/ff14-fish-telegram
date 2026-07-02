@@ -1,3 +1,5 @@
+"""pytest fixtures shared across all test modules."""
+
 from pathlib import Path
 
 import pytest
@@ -10,16 +12,19 @@ SAMPLE_INFO_JS = Path(__file__).parent / "sample_fish_info.js"
 
 @pytest.fixture
 def sample_js_content() -> str:
+    """Return the content of sample_data.js for testing parser."""
     return SAMPLE_DATA_JS.read_text()
 
 
 @pytest.fixture
 def sample_info_content() -> str:
+    """Return the content of sample_fish_info.js for testing parser."""
     return SAMPLE_INFO_JS.read_text()
 
 
 @pytest.fixture
 def sample_fish() -> Fish:
+    """A fish with an overnight time restriction (18:00-06:00) and no weather requirements."""
     return Fish(
         id=4898,
         name_en="Merlthor Goby",
@@ -48,6 +53,7 @@ def sample_fish() -> Fish:
 
 @pytest.fixture
 def time_restricted_fish() -> Fish:
+    """A fish with a non-overnight time restriction (17:00-22:00)."""
     return Fish(
         id=4911,
         name_en="Pebble Crab",
@@ -76,6 +82,7 @@ def time_restricted_fish() -> Fish:
 
 @pytest.fixture
 def fish_with_intuition() -> Fish:
+    """A fish requiring both predators (mooch) and intuition, with no time restrictions."""
     return Fish(
         id=5000,
         name_en="Intuition Fish",
@@ -104,6 +111,7 @@ def fish_with_intuition() -> Fish:
 
 @pytest.fixture
 def sample_fish_data() -> FishData:
+    """A minimal FishData with one always-available fish, one spot, and one item."""
     return FishData(
         fish={
             4898: Fish(

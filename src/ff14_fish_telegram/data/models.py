@@ -1,9 +1,38 @@
+"""Data models representing FFXIV fish, fishing spots, weather, and related data."""
+
 from dataclasses import dataclass
 from typing import Any
 
 
 @dataclass
 class Fish:
+    """A fish species in FFXIV with its catch conditions.
+
+    Attributes:
+        id: Unique fish identifier.
+        name_en: English name.
+        start_hour: Earliest Eorzea hour (0-24) this fish can be caught.
+        end_hour: Latest Eorzea hour (0-24) this fish can be caught.
+        patch: Game patch the fish was introduced in.
+        big_fish: Whether this is a "big fish" (legendary).
+        collectable: Whether this fish can be collected for turn-ins.
+        weather_set: Required weather type IDs for this fish to appear.
+        previous_weather_set: Required weather type IDs in the preceding weather period.
+        location_id: ID of the fishing spot where this fish is caught.
+        best_catch_path: Recommended mooching chain IDs.
+        predators: IDs of predator fish used to mooch this fish.
+        intuition_length: Seconds of intuition buff needed to catch (if any).
+        fish_eyes: Whether the Fish Eyes ability is needed.
+        folklore: ID of the folklore tome required.
+        snagging: Snagging type required ("None", "Snagging", etc.).
+        lure: Lure type required.
+        hookset: Hookset type required ("Precision", "Powerful", etc.).
+        tug: Tug strength indicator ("Light", "Medium", "Heavy").
+        gig: Spearfishing gig type if applicable.
+        data_missing: Placeholder for incomplete data fields.
+        aquarium: Aquarium display slot metadata if applicable.
+    """
+
     id: int
     name_en: str
     start_hour: float
@@ -29,10 +58,12 @@ class Fish:
 
     @property
     def has_intuition_or_predator(self) -> bool:
+        """Whether catching this fish requires mooching or an intuition buff."""
         return bool(self.predators) or self.intuition_length is not None
 
     @property
     def always_available(self) -> bool:
+        """Whether this fish has no time or weather restrictions."""
         return (
             self.start_hour == 0
             and self.end_hour == 24
@@ -43,6 +74,17 @@ class Fish:
 
 @dataclass
 class FishingSpot:
+    """A named fishing location in FFXIV.
+
+    Attributes:
+        id: Unique spot identifier.
+        name_en: English name of the spot.
+        territory_id: ID of the territory this spot belongs to.
+        placename_id: ID of the placename (sub-location).
+        zone_id: ID of the zone this spot belongs to (optional).
+        region_id: ID of the region (optional).
+    """
+
     id: int
     name_en: str
     territory_id: int
@@ -53,12 +95,28 @@ class FishingSpot:
 
 @dataclass
 class Item:
+    """An in-game item, typically used for bait or mooching.
+
+    Attributes:
+        id: Unique item identifier.
+        name_en: English name.
+    """
+
     id: int
     name_en: str
 
 
 @dataclass
 class WeatherRate:
+    """Weather rate table for a territory, used to compute weather probabilities.
+
+    Attributes:
+        map_id: ID of the map this rate belongs to.
+        zone_id: ID of the zone.
+        region_id: ID of the region.
+        weather_rates: List of [weather_type_id, cumulative_rate] pairs defining weather chances.
+    """
+
     map_id: int
     zone_id: int
     region_id: int
@@ -67,6 +125,18 @@ class WeatherRate:
 
 @dataclass
 class FishData:
+    """Top-level container holding all parsed FFXIV fish data.
+
+    Attributes:
+        fish: Map of fish ID to Fish.
+        fishing_spots: Map of spot ID to FishingSpot.
+        items: Map of item ID to Item.
+        weather_rates: Map of territory ID to WeatherRate.
+        weather_types: Map of weather type ID to English name.
+        regions: Map of region ID to English name.
+        zones: Map of zone ID to English name.
+    """
+
     fish: dict[int, Fish]
     fishing_spots: dict[int, FishingSpot]
     items: dict[int, Item]

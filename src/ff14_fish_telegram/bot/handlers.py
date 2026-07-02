@@ -1,3 +1,5 @@
+"""Telegram command handlers for the fishing bot (/start, /caught, /uncaught, /day)."""
+
 from datetime import datetime, timezone
 
 from telegram import Update
@@ -29,18 +31,22 @@ _HELP_TEXT = (
 
 
 def _sanitize(name: str) -> str:
+    """Lowercase and strip whitespace from a fish name for case-insensitive matching."""
     return name.strip().lower()
 
 
 def _get_fish_data(context: ContextTypes.DEFAULT_TYPE) -> FishData | None:
+    """Retrieve the shared FishData from bot_data, or None if not yet loaded."""
     return context.bot_data.get(BOT_DATA_KEY)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /start: send the help message listing available commands."""
     await update.message.reply_text(_HELP_TEXT)
 
 
 async def caught(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /caught [name|all]: list caught fish or mark one/all as caught."""
     user_id = update.effective_user.id
     fish_data = _get_fish_data(context)
     if fish_data is None:
@@ -93,6 +99,7 @@ async def caught(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def uncaught(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /uncaught [name|all]: list uncaught fish or mark one/all as uncaught."""
     user_id = update.effective_user.id
     fish_data = _get_fish_data(context)
     if fish_data is None:
@@ -142,6 +149,7 @@ async def uncaught(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /day: show uncaught fish available in the next 24 hours with time/weather info."""
     user_id = update.effective_user.id
     fish_data = _get_fish_data(context)
     if fish_data is None:
@@ -193,6 +201,7 @@ async def day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def get_handlers() -> list[CommandHandler]:
+    """Return all command handlers to register with the Telegram application."""
     return [
         CommandHandler("start", start),
         CommandHandler("caught", caught),

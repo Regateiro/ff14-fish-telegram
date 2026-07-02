@@ -1,3 +1,5 @@
+"""Fetch, parse, and deserialize FFXIV fish data from the ff14-fish-tracker-app website."""
+
 import re
 from datetime import datetime, timezone
 
@@ -17,6 +19,7 @@ FISH_INFO_URL = DATA_URL.replace("data.js", "fish_info_data.js")
 
 
 async def fetch_raw_data(url: str = DATA_URL) -> str:
+    """Fetch the raw JavaScript content from the given URL with a 30-second timeout."""
     async with aiohttp.ClientSession() as session:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
             resp.raise_for_status()
@@ -24,10 +27,12 @@ async def fetch_raw_data(url: str = DATA_URL) -> str:
 
 
 def _js_to_dict(content: str) -> dict:
+    """Decode lenient JavaScript object syntax into a Python dict via demjson3."""
     return demjson3.decode(content, strict=False)
 
 
 def parse_data_js(content: str) -> dict:
+    """Extract and parse the `const DATA = ...` JS object from the main data file."""
     match = re.search(r"const DATA\s*=\s*(\{.+\});?\s*$", content, re.DOTALL)
     if not match:
         raise ValueError("Could not find DATA constant in JS file")
@@ -35,6 +40,7 @@ def parse_data_js(content: str) -> dict:
 
 
 def parse_fish_info_js(content: str) -> dict[int, str]:
+    """Extract and parse FISH_INFO array, returning a map of fish ID to English name."""
     match = re.search(r"const FISH_INFO\s*=\s*(\[.+?\]);?\s*$", content, re.DOTALL)
     if not match:
         raise ValueError("Could not find FISH_INFO constant in JS file")
@@ -43,6 +49,7 @@ def parse_fish_info_js(content: str) -> dict[int, str]:
 
 
 def _parse_fish(raw: dict, name_en: str = "") -> Fish:
+    """Convert a raw dict from the JS data into a Fish dataclass instance."""
     return Fish(
         id=raw["_id"],
         name_en=name_en or raw.get("name_en", ""),
@@ -70,6 +77,7 @@ def _parse_fish(raw: dict, name_en: str = "") -> Fish:
 
 
 def _parse_fishing_spot(raw: dict) -> FishingSpot:
+    """Convert a raw dict into a FishingSpot dataclass instance."""
     return FishingSpot(
         id=raw["_id"],
         name_en=raw.get("name_en", ""),
@@ -81,6 +89,7 @@ def _parse_fishing_spot(raw: dict) -> FishingSpot:
 
 
 def _parse_item(raw: dict) -> Item:
+    """Convert a raw dict into an Item dataclass instance."""
     return Item(
         id=raw["_id"],
         name_en=raw.get("name_en", ""),
@@ -88,6 +97,7 @@ def _parse_item(raw: dict) -> Item:
 
 
 def _parse_weather_rate(k: str, raw: dict) -> WeatherRate:
+    """Convert a raw dict into a WeatherRate dataclass instance."""
     return WeatherRate(
         map_id=raw["map_id"],
         zone_id=raw["zone_id"],
@@ -97,6 +107,10 @@ def _parse_weather_rate(k: str, raw: dict) -> WeatherRate:
 
 
 def build_fish_data(parsed: dict, fish_names: dict[int, str] | None = None) -> FishData:
+    """Construct a FishData container from the parsed DATA dict and optional fish name overrides.
+
+    Fishing spots missing required keys (territory_id, placename_id) are skipped.
+    """
     fish_names = fish_names or {}
     fish = {int(k): _parse_fish(v, fish_names.get(int(k), "")) for k, v in parsed["FISH"].items()}
 
@@ -132,6 +146,11 @@ async def load_fish_data(
     data_url: str = DATA_URL,
     info_url: str | None = None,
 ) -> FishData:
+    """Fetch, parse, and build a FishData object from the tracker site's JS files.
+
+    Fish names from the fish_info_data.js file are merged in as an enrichment
+    pass; failure to fetch names is non-fatal (fish will use their inline name).
+    """
     info_url = info_url or FISH_INFO_URL
     raw_js = await fetch_raw_data(data_url)
     parsed = parse_data_js(raw_js)
@@ -145,10 +164,12 @@ async def load_fish_data(
 
 
 def save_cache(data: FishData, path: str | None = None) -> None:
+    """Stub: persist FishData to a JSON cache file (not yet implemented)."""
     path = path or str(DATA_CACHE_PATH)
 
 
 def _fish_to_dict(f: Fish) -> dict:
+    """Serialize a Fish dataclass to a plain JSON-compatible dict."""
     return {
         "id": f.id,
         "name_en": f.name_en,
@@ -176,6 +197,7 @@ def _fish_to_dict(f: Fish) -> dict:
 
 
 def _spot_to_dict(s: FishingSpot) -> dict:
+    """Serialize a FishingSpot dataclass to a plain dict."""
     return {
         "id": s.id,
         "name_en": s.name_en,
@@ -187,10 +209,12 @@ def _spot_to_dict(s: FishingSpot) -> dict:
 
 
 def _item_to_dict(i: Item) -> dict:
+    """Serialize an Item dataclass to a plain dict."""
     return {"id": i.id, "name_en": i.name_en}
 
 
 def _wr_to_dict(k: int, wr: WeatherRate) -> dict:
+    """Serialize a WeatherRate dataclass to a plain dict."""
     return {
         "map_id": wr.map_id,
         "zone_id": wr.zone_id,
@@ -200,6 +224,7 @@ def _wr_to_dict(k: int, wr: WeatherRate) -> dict:
 
 
 def to_json_serializable(data: FishData) -> dict:
+    """Convert the entire FishData tree into a JSON-serializable dict."""
     return {
         "fish": {str(k): _fish_to_dict(v) for k, v in data.fish.items()},
         "fishing_spots": {str(k): _spot_to_dict(v) for k, v in data.fishing_spots.items()},
@@ -213,6 +238,7 @@ def to_json_serializable(data: FishData) -> dict:
 
 
 def from_json_serializable(d: dict) -> FishData:
+    """Reconstruct a FishData from a dict previously created by to_json_serializable."""
     fish = {int(k): _parse_fish(v) for k, v in d["fish"].items()}
     fishing_spots = {int(k): _parse_fishing_spot(v) for k, v in d.get("fishing_spots", {}).items()}
     items = {int(k): _parse_item(v) for k, v in d.get("items", {}).items()}

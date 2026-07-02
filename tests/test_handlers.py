@@ -1,3 +1,5 @@
+"""Tests for Telegram command handlers (_sanitize, /start, /caught, /day)."""
+
 import pytest
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -7,6 +9,8 @@ from ff14_fish_telegram.data.models import FishData
 
 
 class TestSanitize:
+    """Tests for the _sanitize helper (lowercase + strip)."""
+
     def test_lowercase(self):
         assert _sanitize("Merlthor Goby") == "merlthor goby"
 
@@ -18,6 +22,8 @@ class TestSanitize:
 
 
 class TestCaughtHandler:
+    """Tests for the /caught command handler."""
+
     @pytest.mark.asyncio
     async def test_no_args_no_fish_data(self, mocker):
         update = mocker.Mock(spec=Update)
@@ -100,6 +106,8 @@ class TestCaughtHandler:
 
 
 class TestStartHandler:
+    """Tests for the /start command handler."""
+
     @pytest.mark.asyncio
     async def test_start(self, mocker):
         update = mocker.Mock(spec=Update)
@@ -114,6 +122,8 @@ class TestStartHandler:
 
 
 class TestDayHandler:
+    """Tests for the /day command handler."""
+
     @pytest.mark.asyncio
     async def test_no_fish_data(self, mocker):
         update = mocker.Mock(spec=Update)

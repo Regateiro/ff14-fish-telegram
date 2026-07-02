@@ -1,3 +1,5 @@
+"""Periodic reminder logic that notifies users before fish availability windows open."""
+
 from datetime import datetime, timezone
 
 from telegram import Bot
@@ -14,12 +16,18 @@ from ff14_fish_telegram.db.database import (
 
 
 def _lead_time_seconds(fish: Fish) -> int:
+    """Return how far in advance (seconds) to notify for the given fish.
+
+    Fish requiring mooching or intuition get a longer lead time (30 min)
+    so the user can prepare. Direct-catch fish get 10 min.
+    """
     if fish.has_intuition_or_predator:
         return 30 * 60
     return 10 * 60
 
 
 async def check_reminders(application: Application) -> None:
+    """Iterate all users and their uncaught fish, sending reminders for upcoming windows."""
     fish_data: FishData | None = application.bot_data.get("fish_data")
     if fish_data is None:
         return
@@ -29,6 +37,7 @@ async def check_reminders(application: Application) -> None:
     for user_id in get_all_user_ids():
         caught_ids = get_caught_fish_ids(user_id)
         for fish in fish_data.fish.values():
+            # Skip fish the user already caught or that are always available
             if fish.id in caught_ids or fish.always_available:
                 continue
 
@@ -40,6 +49,7 @@ async def check_reminders(application: Application) -> None:
             remaining = (window.start_earth - now).total_seconds()
             if 0 < remaining <= lead:
                 ws_key = int(window.start_eorzea)
+                # Avoid duplicate notifications for the same window
                 if not reminder_sent(user_id, fish.id, ws_key):
                     spot = fish_data.fishing_spots.get(fish.location_id)
                     zone_name = fish_data.zones.get(spot.zone_id, "") if spot else ""

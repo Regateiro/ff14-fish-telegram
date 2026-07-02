@@ -1,3 +1,5 @@
+"""Application entry point: initializes the bot, database, scheduler, and starts polling."""
+
 import logging
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 async def refresh_fish_data(application) -> None:
+    """Fetch the latest fish/weather data from the tracker site and store it in bot_data."""
     logger.info("Refreshing fish data from tracker site...")
     try:
         data = await load_fish_data()
@@ -30,6 +33,7 @@ async def refresh_fish_data(application) -> None:
 
 
 async def reminder_job(application) -> None:
+    """Wrapper around check_reminders that logs failures without crashing the scheduler."""
     try:
         await check_reminders(application)
     except Exception as e:
@@ -37,6 +41,13 @@ async def reminder_job(application) -> None:
 
 
 async def post_init(application) -> None:
+    """Run once after the bot starts: initialize DB, load fish data, and start background jobs.
+
+    Scheduled jobs:
+      - Fish data refresh every FETCH_INTERVAL_HOURS
+      - Reminder check every minute
+      - Old reminder cleanup daily
+    """
     init_db()
     await refresh_fish_data(application)
 
@@ -66,12 +77,14 @@ async def post_init(application) -> None:
 
 
 async def post_stop(application) -> None:
+    """Shut down the APScheduler when the bot stops."""
     scheduler = application.bot_data.get("scheduler")
     if scheduler:
         scheduler.shutdown(wait=False)
 
 
 def main() -> None:
+    """Build the Telegram application, register handlers, and start long-polling."""
     app = (
         ApplicationBuilder().token(TELEGRAM_TOKEN).post_init(post_init).post_stop(post_stop).build()
     )
