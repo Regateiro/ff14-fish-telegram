@@ -221,29 +221,33 @@ async def load_fish_data(
 
 
 def _fish_to_dict(f: Fish) -> dict:
-    """Serialize a Fish dataclass to a plain JSON-compatible dict."""
+    """Serialize a Fish dataclass to a plain JSON-compatible dict.
+
+    Uses JS camelCase keys so the output can be fed back into _parse_fish
+    for deserialization roundtripping.
+    """
     return {
-        "id": f.id,
+        "_id": f.id,
         "name_en": f.name_en,
-        "start_hour": f.start_hour,
-        "end_hour": f.end_hour,
+        "startHour": f.start_hour,
+        "endHour": f.end_hour,
         "patch": f.patch,
-        "big_fish": f.big_fish,
+        "bigFish": f.big_fish,
         "collectable": f.collectable,
-        "weather_set": f.weather_set,
-        "previous_weather_set": f.previous_weather_set,
-        "location_id": f.location_id,
-        "best_catch_path": f.best_catch_path,
+        "weatherSet": f.weather_set,
+        "previousWeatherSet": f.previous_weather_set,
+        "location": f.location_id,
+        "bestCatchPath": f.best_catch_path,
         "predators": f.predators,
-        "intuition_length": f.intuition_length,
-        "fish_eyes": f.fish_eyes,
+        "intuitionLength": f.intuition_length,
+        "fishEyes": f.fish_eyes,
         "folklore": f.folklore,
         "snagging": f.snagging,
         "lure": f.lure,
         "hookset": f.hookset,
         "tug": f.tug,
         "gig": f.gig,
-        "data_missing": f.data_missing,
+        "dataMissing": f.data_missing,
         "aquarium": f.aquarium,
     }
 
@@ -251,7 +255,7 @@ def _fish_to_dict(f: Fish) -> dict:
 def _spot_to_dict(s: FishingSpot) -> dict:
     """Serialize a FishingSpot dataclass to a plain dict."""
     return {
-        "id": s.id,
+        "_id": s.id,
         "name_en": s.name_en,
         "territory_id": s.territory_id,
         "placename_id": s.placename_id,
@@ -262,7 +266,7 @@ def _spot_to_dict(s: FishingSpot) -> dict:
 
 def _item_to_dict(i: Item) -> dict:
     """Serialize an Item dataclass to a plain dict."""
-    return {"id": i.id, "name_en": i.name_en}
+    return {"_id": i.id, "name_en": i.name_en}
 
 
 def _wr_to_dict(k: int, wr: WeatherRate) -> dict:

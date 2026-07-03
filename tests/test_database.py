@@ -11,11 +11,14 @@ from ff14_fish_telegram.db.database import (
     get_all_user_ids,
     get_caught_fish_ids,
     get_connection,
+    get_db,
     init_db,
     is_caught,
     mark_caught,
+    mark_caught_many,
     mark_reminder_sent,
     mark_uncaught,
+    mark_uncaught_many,
     reminder_sent,
 )
 
@@ -74,6 +77,33 @@ class TestCaughtFish:
     def test_delete_nonexistent(self):
         mark_uncaught(9999, 9999)
         assert True
+
+    def test_mark_caught_many(self):
+        mark_caught_many(1001, [4898, 4911, 5000])
+        assert get_caught_fish_ids(1001) == {4898, 4911, 5000}
+
+    def test_mark_caught_many_empty(self):
+        mark_caught_many(1001, [])
+        assert get_caught_fish_ids(1001) == set()
+
+    def test_mark_uncaught_many(self):
+        mark_caught_many(1001, [4898, 4911, 5000])
+        mark_uncaught_many(1001, [4898, 5000])
+        assert get_caught_fish_ids(1001) == {4911}
+
+    def test_mark_uncaught_many_empty(self):
+        mark_uncaught_many(1001, [])
+        assert True
+
+    def test_get_db_rollback_on_error(self):
+        with pytest.raises(RuntimeError):
+            with get_db() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO caught_fish (user_id, fish_id) VALUES (?, ?)",
+                    (1001, 4898),
+                )
+                raise RuntimeError("Simulated failure")
+        assert is_caught(1001, 4898) is False
 
 
 class TestReminders:
