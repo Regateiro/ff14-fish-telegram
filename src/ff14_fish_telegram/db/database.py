@@ -1,4 +1,13 @@
-"""SQLite database layer for tracking caught fish and sent reminders per user."""
+"""SQLite database layer for tracking caught fish and sent reminders per user.
+
+This module owns the persistence layer. It exposes CRUD functions consumed by:
+  - bot/handlers.py — marking fish caught/uncaught on user command
+  - bot/reminders.py — deduplicating reminder notifications
+  - __main__.py     — initializing tables and cleaning old reminders
+
+All functions open their own connection via the get_db() context manager,
+which auto-commits on success and rolls back on error.
+"""
 
 import sqlite3
 from collections.abc import Generator
@@ -8,7 +17,11 @@ from ff14_fish_telegram.config import DATABASE_PATH
 
 
 def get_connection() -> sqlite3.Connection:
-    """Create and return a new SQLite connection with WAL mode and foreign keys."""
+    """Create and return a new SQLite connection with WAL mode and foreign keys.
+
+    WAL mode allows concurrent reads during writes, which matters since
+    the scheduler may write reminders while the bot handles user commands.
+    """
     conn = sqlite3.connect(DATABASE_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -17,7 +30,13 @@ def get_connection() -> sqlite3.Connection:
 
 
 def init_db() -> None:
-    """Create the caught_fish and sent_reminders tables if they don't exist."""
+    """Create the caught_fish and sent_reminders tables if they don't exist.
+
+    Called once at startup by __main__.py's post_init callback.
+    Both tables use composite primary keys to enforce:
+      - One catch record per (user, fish) pair
+      - One reminder record per (user, fish, window) tuple
+    """
     with get_connection() as conn:
         conn.execute(
             """
@@ -44,7 +63,11 @@ def init_db() -> None:
 
 @contextmanager
 def get_db() -> Generator[sqlite3.Connection, None, None]:
-    """Context manager providing a committed connection, with auto-rollback on error."""
+    """Context manager providing a committed connection, with auto-rollback on error.
+
+    Usage pattern used by all CRUD functions below to ensure proper
+    resource cleanup and transactional integrity.
+    """
     conn = get_connection()
     try:
         yield conn
@@ -56,8 +79,17 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
+# ── Caught fish operations ──────────────────────────────────────────
+# These are called from bot/handlers.py in response to /caught and
+# /uncaught commands, and from bot/reminders.py indirectly via the
+# inline "Mark caught" callback.
+
+
 def mark_caught(user_id: int, fish_id: int) -> None:
-    """Record that a user has caught a specific fish (upsert by primary key)."""
+    """Record that a user has caught a specific fish (upsert by primary key).
+
+    Uses INSERT OR REPLACE so re-catching the same fish is idempotent.
+    """
     with get_db() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO caught_fish (user_id, fish_id) VALUES (?, ?)",
@@ -75,7 +107,11 @@ def mark_uncaught(user_id: int, fish_id: int) -> None:
 
 
 def is_caught(user_id: int, fish_id: int) -> bool:
-    """Return True if the user has caught the given fish."""
+    """Return True if the user has caught the given fish.
+
+    Called by handlers.py to check before marking, and by the
+    inline callback to prevent double-marking.
+    """
     with get_db() as conn:
         row = conn.execute(
             "SELECT 1 FROM caught_fish WHERE user_id = ? AND fish_id = ?",
@@ -85,7 +121,11 @@ def is_caught(user_id: int, fish_id: int) -> bool:
 
 
 def get_caught_fish_ids(user_id: int) -> set[int]:
-    """Return the set of fish IDs the user has caught."""
+    """Return the set of fish IDs the user has caught.
+
+    Used by handlers.py and reminders.py to filter fish lists
+    so the bot only shows/reminds about uncaught fish.
+    """
     with get_db() as conn:
         rows = conn.execute(
             "SELECT fish_id FROM caught_fish WHERE user_id = ?",
@@ -95,13 +135,22 @@ def get_caught_fish_ids(user_id: int) -> set[int]:
 
 
 def get_all_user_ids() -> set[int]:
-    """Return all distinct user IDs that have at least one caught fish."""
+    """Return all distinct user IDs that have at least one caught fish.
+
+    Used by bot/reminders.py to determine which users to check
+    reminders for. Users with no caught fish are skipped entirely.
+    """
     with get_db() as conn:
         rows = conn.execute("SELECT DISTINCT user_id FROM caught_fish").fetchall()
         return {row["user_id"] for row in rows}
 
 
-# Prepared SQL statements for reminder deduplication lookups
+# ── Reminder deduplication operations ───────────────────────────────
+# These ensure each user receives at most one notification per
+# (fish, window_start) combination, even if check_reminders runs
+# multiple times during the lead-time window.
+
+
 _SENT_CHECK_SQL = (
     "SELECT 1 FROM sent_reminders WHERE user_id = ? AND fish_id = ? AND window_start_eorzea = ?"
 )
@@ -118,9 +167,17 @@ def reminder_sent(user_id: int, fish_id: int, window_start_eorzea: int) -> bool:
 
 
 def mark_reminder_sent(user_id: int, fish_id: int, window_start_eorzea: int) -> None:
-    """Record that a reminder was sent to avoid duplicate notifications."""
+    """Record that a reminder was sent to avoid duplicate notifications.
+
+    INSERT OR IGNORE ensures no error if the row already exists
+    (race condition safety).
+    """
     with get_db() as conn:
         conn.execute(_SENT_INSERT_SQL, (user_id, fish_id, window_start_eorzea))
+
+
+# ── Batch operations ────────────────────────────────────────────────
+# Used by handlers.py for the "all" variant of /caught and /uncaught.
 
 
 def mark_caught_many(user_id: int, fish_ids: list[int]) -> None:
@@ -139,6 +196,11 @@ def mark_uncaught_many(user_id: int, fish_ids: list[int]) -> None:
             "DELETE FROM caught_fish WHERE user_id = ? AND fish_id = ?",
             [(user_id, fid) for fid in fish_ids],
         )
+
+
+# ── Maintenance ─────────────────────────────────────────────────────
+# Scheduled daily by __main__.py to prevent the sent_reminders table
+# from growing indefinitely.
 
 
 def cleanup_old_reminders(days: int = 7) -> None:

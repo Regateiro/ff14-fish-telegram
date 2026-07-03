@@ -1,4 +1,14 @@
-"""Fetch, parse, and deserialize FFXIV fish data from the ff14-fish-tracker-app website."""
+"""Fetch, parse, and deserialize FFXIV fish data from the ff14-fish-tracker-app website.
+
+This module is the data ingestion layer. It:
+  1. Downloads JavaScript data files from the tracker site via HTTP (aiohttp)
+  2. Parses lenient JS objects into Python dicts (demjson3)
+  3. Converts each raw dict into the typed dataclasses from models.py
+  4. Assembles everything into a single FishData container
+
+The main entry point, load_fish_data(), is called by __main__.py on
+startup and on a recurring schedule (every FETCH_INTERVAL_HOURS).
+"""
 
 import logging
 import re
@@ -18,11 +28,17 @@ from ff14_fish_telegram.data.models import (
 
 logger = logging.getLogger(__name__)
 
+# Derive the fish-info URL by replacing data.js with fish_info_data.js
+# in the base URL. This secondary file provides English name overrides.
 FISH_INFO_URL = DATA_URL.replace("data.js", "fish_info_data.js")
 
 
 async def fetch_raw_data(url: str = DATA_URL) -> str:
-    """Fetch the raw JavaScript content from the given URL with a 30-second timeout."""
+    """Fetch the raw JavaScript content from the given URL with a 30-second timeout.
+
+    Uses aiohttp for async HTTP, compatible with the telegram.ext async
+    framework and APScheduler's async scheduler.
+    """
     async with aiohttp.ClientSession() as session:
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
             resp.raise_for_status()
@@ -30,12 +46,21 @@ async def fetch_raw_data(url: str = DATA_URL) -> str:
 
 
 def _js_to_dict(content: str) -> dict:
-    """Decode lenient JavaScript object syntax into a Python dict via demjson3."""
+    """Decode lenient JavaScript object syntax into a Python dict via demjson3.
+
+    The tracker site uses raw JS object/array syntax (not strict JSON),
+    so standard json.loads() would fail. demjson3 handles trailing commas,
+    single quotes, unquoted keys, etc.
+    """
     return demjson3.decode(content, strict=False)
 
 
 def parse_data_js(content: str) -> dict:
-    """Extract and parse the `const DATA = ...` JS object from the main data file."""
+    """Extract and parse the `const DATA = ...` JS object from the main data file.
+
+    The regex isolates the large JS object literal after 'const DATA ='
+    before demjson3 parses it. Raises ValueError if the pattern is not found.
+    """
     match = re.search(r"const DATA\s*=\s*(\{.+\});?\s*$", content, re.DOTALL)
     if not match:
         raise ValueError("Could not find DATA constant in JS file")
@@ -43,7 +68,12 @@ def parse_data_js(content: str) -> dict:
 
 
 def parse_fish_info_js(content: str) -> dict[int, str]:
-    """Extract and parse FISH_INFO array, returning a map of fish ID to English name."""
+    """Extract and parse FISH_INFO array, returning a map of fish ID to English name.
+
+    The fish_info_data.js file contains richer name data that may differ
+    from the names embedded in the main DATA object. These names are merged
+    as overrides in build_fish_data().
+    """
     match = re.search(r"const FISH_INFO\s*=\s*(\[.+?\]);?\s*$", content, re.DOTALL)
     if not match:
         raise ValueError("Could not find FISH_INFO constant in JS file")
@@ -51,8 +81,17 @@ def parse_fish_info_js(content: str) -> dict[int, str]:
     return {entry["id"]: entry.get("name_en", "") for entry in info_list}
 
 
+# ── Raw → dataclass converters ──────────────────────────────────────
+# Each converter maps the JS naming convention (camelCase) to the
+# Python dataclass field names (snake_case).
+
+
 def _parse_fish(raw: dict, name_en: str = "") -> Fish:
-    """Convert a raw dict from the JS data into a Fish dataclass instance."""
+    """Convert a raw dict from the JS data into a Fish dataclass instance.
+
+    Falls back to the JS-provided name_en, then to a placeholder
+    "Fish #<id>" if both the override and inline name are missing.
+    """
     return Fish(
         id=raw["_id"],
         name_en=name_en or raw.get("name_en", "") or f"Fish #{raw['_id']}",
@@ -112,7 +151,9 @@ def _parse_weather_rate(raw: dict) -> WeatherRate:
 def build_fish_data(parsed: dict, fish_names: dict[int, str] | None = None) -> FishData:
     """Construct a FishData container from the parsed DATA dict and optional fish name overrides.
 
-    Fishing spots missing required keys (territory_id, placename_id) are skipped.
+    This is the assembly step: raw parser output → typed domain model.
+    Fishing spots missing required keys (territory_id, placename_id) are
+    silently skipped since they are unusable for weather lookups.
     """
     fish_names = fish_names or {}
     fish = {}
@@ -154,6 +195,11 @@ async def load_fish_data(
 ) -> FishData:
     """Fetch, parse, and build a FishData object from the tracker site's JS files.
 
+    This is the main entry point, called by __main__.py:
+      1. Fetch main data.js → parse_data_js
+      2. Fetch fish_info_data.js → parse_fish_info_js (non-fatal if fails)
+      3. Merge both into a FishData via build_fish_data
+
     Fish names from the fish_info_data.js file are merged in as an enrichment
     pass; failure to fetch names is non-fatal (fish will use their inline name).
     """
@@ -167,6 +213,11 @@ async def load_fish_data(
     except Exception as e:
         logger.warning("Failed to fetch fish names from %s: %s", info_url, e)
     return build_fish_data(parsed, fish_names)
+
+
+# ── JSON serialization / deserialization ────────────────────────────
+# These helpers exist for optional caching of FishData to disk,
+# converting the typed dataclass tree to plain dicts and back.
 
 
 def _fish_to_dict(f: Fish) -> dict:
@@ -225,7 +276,11 @@ def _wr_to_dict(k: int, wr: WeatherRate) -> dict:
 
 
 def to_json_serializable(data: FishData) -> dict:
-    """Convert the entire FishData tree into a JSON-serializable dict."""
+    """Convert the entire FishData tree into a JSON-serializable dict.
+
+    Dict keys are converted to strings (JSON requires string keys).
+    A _fetched_at timestamp is added for cache freshness checks.
+    """
     return {
         "fish": {str(k): _fish_to_dict(v) for k, v in data.fish.items()},
         "fishing_spots": {str(k): _spot_to_dict(v) for k, v in data.fishing_spots.items()},
@@ -239,7 +294,11 @@ def to_json_serializable(data: FishData) -> dict:
 
 
 def from_json_serializable(d: dict) -> FishData:
-    """Reconstruct a FishData from a dict previously created by to_json_serializable."""
+    """Reconstruct a FishData from a dict previously created by to_json_serializable.
+
+    Inverse of to_json_serializable: converts string keys back to ints
+    and repopulates all dataclass fields.
+    """
     fish = {int(k): _parse_fish(v) for k, v in d["fish"].items()}
     fishing_spots = {int(k): _parse_fishing_spot(v) for k, v in d.get("fishing_spots", {}).items()}
     items = {int(k): _parse_item(v) for k, v in d.get("items", {}).items()}

@@ -1,4 +1,13 @@
-"""Data models representing FFXIV fish, fishing spots, weather, and related data."""
+"""Data models representing FFXIV fish, fishing spots, weather, and related data.
+
+These pure @dataclass types are the shared vocabulary across all layers:
+  - data/fetcher.py   builds these from raw JS
+  - data/availability.py   reads them to compute catchable windows
+  - bot/handlers.py   reads them to format Telegram replies
+  - bot/reminders.py   reads them to build reminder messages
+
+No business logic lives here — only type definitions and computed properties.
+"""
 
 from dataclasses import dataclass
 from typing import Any
@@ -7,6 +16,9 @@ from typing import Any
 @dataclass
 class Fish:
     """A fish species in FFXIV with its catch conditions.
+
+    This is the central domain object. Every feature (reminders, /day,
+    /caught) ultimately revolves around Fish instances stored in FishData.
 
     Attributes:
         id: Unique fish identifier.
@@ -58,12 +70,22 @@ class Fish:
 
     @property
     def has_intuition_or_predator(self) -> bool:
-        """Whether catching this fish requires mooching or an intuition buff."""
+        """Whether catching this fish requires mooching or an intuition buff.
+
+        Used by bot/reminders.py to determine lead time: complex fish
+        get 30 min notice so the user can prepare bait/mooch chains.
+        """
         return bool(self.predators) or self.intuition_length is not None
 
     @property
     def always_available(self) -> bool:
-        """Whether this fish has no time or weather restrictions."""
+        """Whether this fish has no time or weather restrictions.
+
+        Used by:
+          - data/availability.py to short-circuit window computation
+          - bot/reminders.py to skip reminders (always-available fish
+            don't need proactive alerts)
+        """
         return (
             self.start_hour == 0
             and self.end_hour == 24
@@ -75,6 +97,9 @@ class Fish:
 @dataclass
 class FishingSpot:
     """A named fishing location in FFXIV.
+
+    Connects a Fish (via location_id) to a territory, which in turn
+    links to WeatherRate data in availability.py.
 
     Attributes:
         id: Unique spot identifier.
@@ -110,11 +135,15 @@ class Item:
 class WeatherRate:
     """Weather rate table for a territory, used to compute weather probabilities.
 
+    availability.py uses this to determine which weather is active at a
+    given time via the FFXIV XOR-shift forecast algorithm.
+
     Attributes:
         map_id: ID of the map this rate belongs to.
         zone_id: ID of the zone.
         region_id: ID of the region.
-        weather_rates: List of [weather_type_id, cumulative_rate] pairs defining weather chances.
+        weather_rates: List of [weather_type_id, cumulative_rate] pairs
+            defining weather chances (cumulative 0-99).
     """
 
     map_id: int
@@ -126,6 +155,12 @@ class WeatherRate:
 @dataclass
 class FishData:
     """Top-level container holding all parsed FFXIV fish data.
+
+    This is the single object passed around by the application:
+      - Built by data/fetcher.py after parsing remote JS files
+      - Stored in bot_data["fish_data"] by __main__.py
+      - Retrieved by bot/handlers.py and bot/reminders.py for lookups
+      - Used by data/availability.py for weather and location queries
 
     Attributes:
         fish: Map of fish ID to Fish.

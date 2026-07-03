@@ -1,8 +1,17 @@
 """Eorzea time conversion, weather prediction, and fish availability window computation.
 
-Implements the FFXIV weather forecasting algorithm (XOR-shift based) and
-determines catchable windows by intersecting time-of-day restrictions with
-weather conditions.
+This module implements the core domain logic:
+  1. Time conversions between Earth UTC and Eorzea time
+  2. FFXIV's XOR-shift weather forecasting algorithm
+  3. Computing catchable windows by intersecting time-of-day restrictions
+     with weather conditions
+
+These functions are consumed by:
+  - bot/handlers.py  — to display upcoming windows in /day
+  - bot/reminders.py — to find the next window for reminder scheduling
+
+The weather algorithm is based on reverse-engineered FFXIV game data
+and matches the official server's weather computation.
 """
 
 from __future__ import annotations
@@ -18,11 +27,16 @@ _ET_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 # Duration of one FFXIV weather period in Earth seconds (1 Eorzea bell ≈ 175 Earth s).
 # 8 Eorzea hours per weather period → 8 × 175 = 1400 Earth seconds.
+# This constant is used to step through weather periods when searching for matches.
 _WEATHER_PERIOD_EARTH_S = 1400
 
 
 def _uint32(x: int) -> int:
-    """Mask a value to an unsigned 32-bit integer (FFXIV uses uint32 arithmetic)."""
+    """Mask a value to an unsigned 32-bit integer.
+
+    FFXIV's weather RNG uses uint32 arithmetic (overflow wraps).
+    Python ints are arbitrary precision, so we explicitly mask.
+    """
     return x & 0xFFFFFFFF
 
 
@@ -30,22 +44,39 @@ def earth_to_eorzea(dt: datetime) -> float:
     """Convert a UTC datetime to an Eorzea timestamp (seconds since ET epoch).
 
     One Earth second equals 3600/175 Eorzea seconds (~20.57 ET seconds).
+    This factor comes from the game's time scale: 1 real minute = 20.57 ET minutes.
+
+    Used to convert catchable window boundaries between Earth and Eorzea
+    representations throughout this module and by callers in handlers.py.
     """
     return dt.timestamp() * (3600.0 / 175.0)
 
 
 def eorzea_to_earth(eorzea_ts: float) -> datetime:
-    """Convert an Eorzea timestamp back to a UTC datetime."""
+    """Convert an Eorzea timestamp back to a UTC datetime.
+
+    Inverse of earth_to_eorzea. Used to present window times to users
+    in human-readable UTC format.
+    """
     return _ET_EPOCH + timedelta(seconds=eorzea_ts / (3600.0 / 175.0))
 
 
 def _eorzea_day_floor(eorzea_ts: float) -> float:
-    """Round an Eorzea timestamp down to the start of its Eorzea day (86400 ET seconds)."""
+    """Round an Eorzea timestamp down to the start of its Eorzea day.
+
+    An Eorzea day is 86400 ET seconds (24 Eorzea hours × 3600).
+    Used by _available_time_ranges to anchor time-of-day window calculations.
+    """
     return (eorzea_ts // 86400) * 86400
 
 
 def _weather_period_start_eorzea(eorzea_ts: float) -> float:
-    """Return the Eorzea timestamp of the 8-hour weather period containing eorzea_ts."""
+    """Return the Eorzea timestamp of the 8-hour weather period containing eorzea_ts.
+
+    Weather in FFXIV changes every 8 Eorzea hours (1400 Earth seconds).
+    This function rounds down to the start of whichever 8-hour block
+    the given timestamp falls in.
+    """
     bell = eorzea_ts / 3600.0
     period_start_bell = (bell // 8) * 8
     return period_start_bell * 3600.0
@@ -60,7 +91,11 @@ def _forecast_target(earth_ts: float) -> int:
       2. Combine it with the number of days since epoch using the formula:
          calc_base = total_days * 0x64 + increment
       3. Apply XOR-shift: ((calc_base << 11) ^ calc_base) >> 8 ^ calc_base
-      4. Return result % 100 as the forecast value used to index into weather rate tables.
+      4. Return result % 100 as the forecast value used to index into
+         weather rate tables.
+
+    This algorithm is deterministic: given the same Earth timestamp,
+    it always produces the same forecast value, matching the game server.
     """
     bell = earth_ts / 175
     increment = int(bell + 8 - (bell % 8)) % 24
@@ -72,7 +107,13 @@ def _forecast_target(earth_ts: float) -> int:
 
 
 def _get_weather_at(territory_id: int, earth_ts: float, fish_data: FishData) -> int | None:
-    """Determine the weather type ID active in a territory at a given Earth timestamp."""
+    """Determine the weather type ID active in a territory at a given Earth timestamp.
+
+    Looks up the territory's WeatherRate from fish_data, computes the
+    forecast target, and walks the cumulative rate table to find which
+    weather type is active. Returns None if the territory has no weather
+    rate entry or the rate list is empty.
+    """
     wr_entry = fish_data.weather_rates.get(territory_id)
     if not wr_entry:
         return None
@@ -87,7 +128,11 @@ def _get_weather_at(territory_id: int, earth_ts: float, fish_data: FishData) -> 
 
 
 def _weather_matches(weather: int, weather_set: list[int]) -> bool:
-    """Return True if the given weather is in weather_set (or weather_set is empty)."""
+    """Return True if the given weather is in weather_set.
+
+    An empty weather_set means "any weather" (no restriction), so
+    the function returns True in that case.
+    """
     return not weather_set or weather in weather_set
 
 
@@ -101,21 +146,29 @@ def _find_weather_windows(
 ) -> Iterator[tuple[float, float]]:
     """Yield (start_eorzea, end_eorzea) pairs for weather periods matching requirements.
 
-    When previous_weather_set is non-empty, the period before the matching one
-    must have had a weather type from previous_weather_set (for "previous weather"
-    conditions like "Clear Skies → Fog").
+    This is the core weather search. It iterates forward from base_earth_ts,
+    checking each 8-hour weather period to find those matching the fish's
+    weather_set (and optional previous_weather_set).
+
+    When previous_weather_set is non-empty, the period before the matching
+    one must have had a weather type from previous_weather_set. This handles
+    conditions like "Clear Skies → Fog" where the transition matters.
+
+    Results are cached since adjacent weather periods may fall within the
+    same 1400-second Earth-time window and produce the same forecast.
     """
     base_eorzea_ts = earth_to_eorzea(datetime.fromtimestamp(base_earth_ts, tz=timezone.utc))
     current_period_start = _weather_period_start_eorzea(base_eorzea_ts)
 
     # If previous weather is required, step back one period so we can check the condition
+    # on the first iteration rather than waiting for period N+1.
     if previous_weather_set:
         current_period_start -= _WEATHER_PERIOD_EARTH_S * (3600.0 / 175.0)
         limit += 1
 
     last_earth_ts = eorzea_to_earth(current_period_start).timestamp()
 
-    # Cache weather lookups since adjacent periods may hit the same forecast
+    # Cache weather lookups since adjacent periods may hit the same forecast target.
     cache: dict[float, int | None] = {}
     prev_weather: int | None = None
 
@@ -157,9 +210,15 @@ def _available_time_ranges(
 ) -> list[tuple[float, float]]:
     """Intersect a fish's time-of-day window with a weather period.
 
-    Returns list of (start_eorzea, end_eorzea) overlaps. Handles overnight
-    windows (end_hour < start_hour, e.g. 18:00-06:00) by checking both
-    the current day and the previous day's candidate.
+    A fish may only be catchable during specific Eorzea hours (e.g. 18:00-06:00).
+    This function computes the overlap between that daily window and the
+    given weather period.
+
+    Handles overnight windows (end_hour < start_hour, e.g. 18:00-06:00)
+    by checking both the current day and the previous day's candidate,
+    since a weather period may span midnight.
+
+    Returns a list of (start_eorzea, end_eorzea) overlaps (usually 0 or 1).
     """
     if fish.start_hour == 0 and fish.end_hour == 24:
         return [(weather_start_eorzea, weather_end_eorzea)]
@@ -175,6 +234,7 @@ def _available_time_ranges(
     window_end_eorzea = window_start_eorzea + daily_duration * 3600
 
     # For overnight windows, also check the candidate starting one day earlier
+    # because the window wraps around midnight.
     if fish.end_hour < fish.start_hour:
         cand_a = (window_start_eorzea - 86400, window_end_eorzea - 86400)
         cand_b = (window_start_eorzea, window_end_eorzea)
@@ -194,6 +254,10 @@ def _available_time_ranges(
 @dataclass
 class CatchableWindow:
     """A time range during which a fish can be caught.
+
+    This is the result type returned by compute_catchable_windows and
+    get_next_window. It represents the intersection of weather conditions,
+    time-of-day restrictions, and the current time.
 
     Attributes:
         start_eorzea: Start of the window in Eorzea seconds since epoch.
@@ -216,9 +280,15 @@ def compute_catchable_windows(
 ) -> list[CatchableWindow]:
     """Compute upcoming catchable windows for a fish.
 
-    For always-available fish, returns a single 7-day window from now.
-    For restricted fish, finds weather windows matching the fish's conditions,
-    then intersects with the fish's time-of-day range.
+    This is the main public API for availability computation:
+      - For always-available fish: returns a single 7-day window from now.
+      - For restricted fish: finds weather windows matching the fish's
+        weather conditions via _find_weather_windows, then intersects
+        each with the fish's time-of-day range via _available_time_ranges.
+
+    Called by:
+      - bot/handlers.py's /day command to list today's opportunities
+      - bot/reminders.py's get_next_window to find the next reminder trigger
 
     Args:
         fish: The fish to compute windows for.
@@ -296,13 +366,24 @@ def get_next_window(
     fish_data: FishData,
     from_time: datetime | None = None,
 ) -> CatchableWindow | None:
-    """Return the single next catchable window for a fish, or None if none exist."""
+    """Return the single next catchable window for a fish, or None if none exist.
+
+    Convenience wrapper around compute_catchable_windows used by
+    bot/reminders.py to determine the upcoming window for each fish.
+    """
     windows = compute_catchable_windows(fish, fish_data, from_time, max_windows=1)
     return windows[0] if windows else None
 
 
 def get_zone_name_for_spot(spot_id: int, fish_data: FishData) -> str:
-    """Look up the zone name for a fishing spot via its territory's weather rate entry."""
+    """Look up the zone name for a fishing spot via its territory's weather rate entry.
+
+    The zone name is extracted from the WeatherRate's zone_id, which
+    maps into fish_data.zones. This is used by bot/handlers.py's /day
+    command to display a human-readable location for each fish.
+
+    Returns an empty string if the spot, territory, or zone cannot be found.
+    """
     spot = fish_data.fishing_spots.get(spot_id)
     if not spot or spot.territory_id is None:
         return ""

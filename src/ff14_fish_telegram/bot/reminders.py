@@ -1,4 +1,13 @@
-"""Periodic reminder logic that notifies users before fish availability windows open."""
+"""Periodic reminder logic that notifies users before fish availability windows open.
+
+This module runs on a 1-minute schedule (configured in __main__.py)
+and implements the proactive notification feature. For each user with
+caught fish, it:
+  1. Finds uncaught fish with an upcoming catchable window
+  2. Checks if the window starts within the lead time (10 or 30 min)
+  3. Sends a Telegram message with an inline "Mark caught" button
+  4. Records the reminder in the database to avoid duplicates
+"""
 
 from datetime import datetime, timezone
 
@@ -19,7 +28,10 @@ def _lead_time_seconds(fish: Fish) -> int:
     """Return how far in advance (seconds) to notify for the given fish.
 
     Fish requiring mooching or intuition get a longer lead time (30 min)
-    so the user can prepare. Direct-catch fish get 10 min.
+    so the user can prepare bait/mooch chains. Direct-catch fish get 10 min.
+
+    The distinction is based on Fish.has_intuition_or_predator, which
+    checks for non-empty predators list or a non-null intuition_length.
     """
     if fish.has_intuition_or_predator:
         return 30 * 60
@@ -27,7 +39,22 @@ def _lead_time_seconds(fish: Fish) -> int:
 
 
 async def check_reminders(application: Application) -> None:
-    """Iterate all users and their uncaught fish, sending reminders for upcoming windows."""
+    """Iterate all users and their uncaught fish, sending reminders for upcoming windows.
+
+    Called every minute by APScheduler (set up in __main__.py's post_init).
+
+    Flow per (user, fish) pair:
+      1. Skip if fish is already caught or always available
+      2. Compute the next window via availability.get_next_window
+      3. Skip if no upcoming window exists
+      4. Check if window starts within the lead time
+      5. Check deduplication table (reminder_sent)
+      6. Send Telegram message with inline "Mark caught" button
+      7. Record in sent_reminders table
+
+    Errors for individual users are silently caught to prevent one
+    failing notification from crashing the entire reminder cycle.
+    """
     fish_data: FishData | None = application.bot_data.get("fish_data")
     if fish_data is None:
         return
@@ -38,6 +65,7 @@ async def check_reminders(application: Application) -> None:
         caught_ids = get_caught_fish_ids(user_id)
         for fish in fish_data.fish.values():
             # Skip fish the user already caught or that are always available
+            # (always-available fish don't need reminders — they're always there).
             if fish.id in caught_ids or fish.always_available:
                 continue
 
@@ -69,4 +97,6 @@ async def check_reminders(application: Application) -> None:
                         )
                         mark_reminder_sent(user_id, fish.id, ws_key)
                     except Exception:
+                        # Silently skip users who blocked the bot or have
+                        # other chat issues — don't crash the whole cycle.
                         pass
