@@ -1,5 +1,7 @@
 """pytest fixtures shared across all test modules."""
 
+import os
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -8,6 +10,21 @@ from ff14_fish_telegram.data.models import Fish, FishData, FishingSpot, Item, We
 
 SAMPLE_DATA_JS = Path(__file__).parent / "sample_data.js"
 SAMPLE_INFO_JS = Path(__file__).parent / "sample_fish_info.js"
+
+
+@pytest.fixture(autouse=True)
+def _use_temp_db():
+    """Replace DATABASE_PATH with a temporary file for each test, then clean up."""
+    import ff14_fish_telegram.db.database as db_mod
+
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    original = db_mod.DATABASE_PATH
+    db_mod.DATABASE_PATH = path
+    db_mod.init_db()
+    yield
+    db_mod.DATABASE_PATH = original
+    os.unlink(path)
 
 
 @pytest.fixture

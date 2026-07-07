@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application
 
+from ff14_fish_telegram.bot.handlers import BOT_DATA_KEY
 from ff14_fish_telegram.data.availability import get_next_window
 from ff14_fish_telegram.data.models import Fish, FishData
 from ff14_fish_telegram.db.database import (
@@ -55,7 +56,7 @@ async def check_reminders(application: Application) -> None:
     Errors for individual users are silently caught to prevent one
     failing notification from crashing the entire reminder cycle.
     """
-    fish_data: FishData | None = application.bot_data.get("fish_data")
+    fish_data: FishData | None = application.bot_data.get(BOT_DATA_KEY)
     if fish_data is None:
         return
 

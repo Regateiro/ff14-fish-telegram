@@ -26,10 +26,10 @@ DATA_URL: str = os.environ.get(
     "https://ff14fish.carbuncleplushy.com/js/app/data.js",
 )
 
-# Path to local cache file for fish data JSON serialization.
-# Currently reserved for future use (fetcher builds data in memory).
+# Path to a local cache file for the raw fish data JS.
+# When the remote source is unavailable, fetcher.py falls back to this file.
 DATA_CACHE_PATH: Path = Path(
-    os.environ.get("DATA_CACHE_PATH", "data_cache.json"),
+    os.environ.get("DATA_CACHE_PATH", "data_cache.js"),
 )
 
 # Path to the SQLite database file.

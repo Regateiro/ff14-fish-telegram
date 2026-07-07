@@ -12,12 +12,11 @@ startup and on a recurring schedule (every FETCH_INTERVAL_HOURS).
 
 import logging
 import re
-from datetime import datetime, timezone
 
 import aiohttp
 import demjson3
 
-from ff14_fish_telegram.config import DATA_URL
+from ff14_fish_telegram.config import DATA_CACHE_PATH, DATA_URL
 from ff14_fish_telegram.data.models import (
     Fish,
     FishData,
@@ -189,6 +188,23 @@ def build_fish_data(parsed: dict, fish_names: dict[int, str] | None = None) -> F
     )
 
 
+def _save_cache(raw_js: str) -> None:
+    """Save raw JS content to the local cache file for offline fallback."""
+    try:
+        DATA_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        DATA_CACHE_PATH.write_text(raw_js, encoding="utf-8")
+    except Exception as e:
+        logger.warning("Failed to cache fish data: %s", e)
+
+
+def _load_cache() -> str:
+    """Load raw JS content from the local cache file.
+
+    Raises FileNotFoundError if the cache does not exist.
+    """
+    return DATA_CACHE_PATH.read_text(encoding="utf-8")
+
+
 async def load_fish_data(
     data_url: str = DATA_URL,
     info_url: str | None = None,
@@ -200,11 +216,29 @@ async def load_fish_data(
       2. Fetch fish_info_data.js → parse_fish_info_js (non-fatal if fails)
       3. Merge both into a FishData via build_fish_data
 
+    On fetch success the raw JS is saved to a local cache (DATA_CACHE_PATH).
+    If the remote source is unavailable, the cache is used as a fallback.
+    A RuntimeError is raised when both remote and cache are unavailable.
+
     Fish names from the fish_info_data.js file are merged in as an enrichment
     pass; failure to fetch names is non-fatal (fish will use their inline name).
     """
     info_url = info_url or FISH_INFO_URL
-    raw_js = await fetch_raw_data(data_url)
+
+    raw_js: str | None = None
+    try:
+        raw_js = await fetch_raw_data(data_url)
+        _save_cache(raw_js)
+    except Exception as e:
+        logger.warning("Failed to fetch data from %s: %s", data_url, e)
+        try:
+            raw_js = _load_cache()
+            logger.info("Loaded fish data from local cache: %s", DATA_CACHE_PATH)
+        except Exception as cache_e:
+            raise RuntimeError(
+                f"Failed to fetch remote data and no usable cache at {DATA_CACHE_PATH}"
+            ) from cache_e
+
     parsed = parse_data_js(raw_js)
     fish_names: dict[int, str] = {}
     try:
@@ -215,108 +249,3 @@ async def load_fish_data(
     return build_fish_data(parsed, fish_names)
 
 
-# ── JSON serialization / deserialization ────────────────────────────
-# These helpers exist for optional caching of FishData to disk,
-# converting the typed dataclass tree to plain dicts and back.
-
-
-def _fish_to_dict(f: Fish) -> dict:
-    """Serialize a Fish dataclass to a plain JSON-compatible dict.
-
-    Uses JS camelCase keys so the output can be fed back into _parse_fish
-    for deserialization roundtripping.
-    """
-    return {
-        "_id": f.id,
-        "name_en": f.name_en,
-        "startHour": f.start_hour,
-        "endHour": f.end_hour,
-        "patch": f.patch,
-        "bigFish": f.big_fish,
-        "collectable": f.collectable,
-        "weatherSet": f.weather_set,
-        "previousWeatherSet": f.previous_weather_set,
-        "location": f.location_id,
-        "bestCatchPath": f.best_catch_path,
-        "predators": f.predators,
-        "intuitionLength": f.intuition_length,
-        "fishEyes": f.fish_eyes,
-        "folklore": f.folklore,
-        "snagging": f.snagging,
-        "lure": f.lure,
-        "hookset": f.hookset,
-        "tug": f.tug,
-        "gig": f.gig,
-        "dataMissing": f.data_missing,
-        "aquarium": f.aquarium,
-    }
-
-
-def _spot_to_dict(s: FishingSpot) -> dict:
-    """Serialize a FishingSpot dataclass to a plain dict."""
-    return {
-        "_id": s.id,
-        "name_en": s.name_en,
-        "territory_id": s.territory_id,
-        "placename_id": s.placename_id,
-        "zone_id": s.zone_id,
-        "region_id": s.region_id,
-    }
-
-
-def _item_to_dict(i: Item) -> dict:
-    """Serialize an Item dataclass to a plain dict."""
-    return {"_id": i.id, "name_en": i.name_en}
-
-
-def _wr_to_dict(k: int, wr: WeatherRate) -> dict:
-    """Serialize a WeatherRate dataclass to a plain dict."""
-    return {
-        "map_id": wr.map_id,
-        "zone_id": wr.zone_id,
-        "region_id": wr.region_id,
-        "weather_rates": wr.weather_rates,
-    }
-
-
-def to_json_serializable(data: FishData) -> dict:
-    """Convert the entire FishData tree into a JSON-serializable dict.
-
-    Dict keys are converted to strings (JSON requires string keys).
-    A _fetched_at timestamp is added for cache freshness checks.
-    """
-    return {
-        "fish": {str(k): _fish_to_dict(v) for k, v in data.fish.items()},
-        "fishing_spots": {str(k): _spot_to_dict(v) for k, v in data.fishing_spots.items()},
-        "items": {str(k): _item_to_dict(v) for k, v in data.items.items()},
-        "weather_rates": {str(k): _wr_to_dict(k, v) for k, v in data.weather_rates.items()},
-        "weather_types": data.weather_types,
-        "regions": data.regions,
-        "zones": data.zones,
-        "_fetched_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-def from_json_serializable(d: dict) -> FishData:
-    """Reconstruct a FishData from a dict previously created by to_json_serializable.
-
-    Inverse of to_json_serializable: converts string keys back to ints
-    and repopulates all dataclass fields.
-    """
-    fish = {int(k): _parse_fish(v) for k, v in d["fish"].items()}
-    fishing_spots = {int(k): _parse_fishing_spot(v) for k, v in d.get("fishing_spots", {}).items()}
-    items = {int(k): _parse_item(v) for k, v in d.get("items", {}).items()}
-    wrs = d.get("weather_rates", {})
-    weather_rates = {int(k): _parse_weather_rate(v) for k, v in wrs.items()}
-    weather_types = {int(k): v for k, v in d.get("weather_types", {}).items()}
-    regions = {int(k): v for k, v in d.get("regions", {}).items()}
-    zones = {int(k): v for k, v in d.get("zones", {}).items()}
-    return FishData(
-        fish=fish,
-        fishing_spots=fishing_spots,
-        items=items,
-        weather_rates=weather_rates,
-        weather_types=weather_types,
-        regions=regions,
-        zones=zones,
-    )

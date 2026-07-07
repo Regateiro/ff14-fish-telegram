@@ -1,18 +1,13 @@
 """Tests for the SQLite database layer (caught_fish and sent_reminders tables)."""
 
-import os
-import tempfile
-
 import pytest
 
-from ff14_fish_telegram import db as db_module
 from ff14_fish_telegram.db.database import (
     cleanup_old_reminders,
     get_all_user_ids,
     get_caught_fish_ids,
     get_connection,
     get_db,
-    init_db,
     is_caught,
     mark_caught,
     mark_caught_many,
@@ -21,19 +16,6 @@ from ff14_fish_telegram.db.database import (
     mark_uncaught_many,
     reminder_sent,
 )
-
-
-@pytest.fixture(autouse=True)
-def _use_temp_db():
-    """Replace DATABASE_PATH with a temporary file for each test, then clean up."""
-    fd, path = tempfile.mkstemp(suffix=".db")
-    os.close(fd)
-    original = db_module.database.DATABASE_PATH
-    db_module.database.DATABASE_PATH = path
-    init_db()
-    yield
-    db_module.database.DATABASE_PATH = original
-    os.unlink(path)
 
 
 class TestCaughtFish:
