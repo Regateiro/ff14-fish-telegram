@@ -12,6 +12,7 @@ startup and on a recurring schedule (every FETCH_INTERVAL_HOURS).
 
 import logging
 import re
+import time
 
 import aiohttp
 import demjson3
@@ -30,6 +31,11 @@ logger = logging.getLogger(__name__)
 # Derive the fish-info URL by replacing data.js with fish_info_data.js
 # in the base URL. This secondary file provides English name overrides.
 FISH_INFO_URL = DATA_URL.replace("data.js", "fish_info_data.js")
+
+
+def _cache_bust(url: str) -> str:
+    separator = "&" if "?" in url else "?"
+    return f"{url}{separator}_={int(time.time())}"
 
 
 async def fetch_raw_data(url: str = DATA_URL) -> str:
@@ -227,7 +233,7 @@ async def load_fish_data(
 
     raw_js: str | None = None
     try:
-        raw_js = await fetch_raw_data(data_url)
+        raw_js = await fetch_raw_data(_cache_bust(data_url))
         _save_cache(raw_js)
     except Exception as e:
         logger.warning("Failed to fetch data from %s: %s", data_url, e)
@@ -242,7 +248,7 @@ async def load_fish_data(
     parsed = parse_data_js(raw_js)
     fish_names: dict[int, str] = {}
     try:
-        raw_info = await fetch_raw_data(info_url)
+        raw_info = await fetch_raw_data(_cache_bust(info_url))
         fish_names = parse_fish_info_js(raw_info)
     except Exception as e:
         logger.warning("Failed to fetch fish names from %s: %s", info_url, e)
