@@ -23,7 +23,7 @@ TELEGRAM_TOKEN: str = os.environ["TELEGRAM_TOKEN"]
 # Used by data/fetcher.py to download raw fish/spot/weather data.
 DATA_URL: str = os.environ.get(
     "DATA_URL",
-    "https://ff14fish.carbuncleplushy.com/js/app/data.js",
+    "https://raw.githubusercontent.com/icykoneko/ff14-fish-tracker-app/master/js/app/data.js",
 )
 
 # Path to a local cache file for the raw fish data JS.

@@ -1,7 +1,7 @@
-"""Fetch, parse, and deserialize FFXIV fish data from the ff14-fish-tracker-app website.
+"""Fetch, parse, and deserialize FFXIV fish data from the ff14-fish-tracker-app repository.
 
 This module is the data ingestion layer. It:
-  1. Downloads JavaScript data files from the tracker site via HTTP (aiohttp)
+  1. Downloads JavaScript data files from the tracker repo via HTTP (aiohttp)
   2. Parses lenient JS objects into Python dicts (demjson3)
   3. Converts each raw dict into the typed dataclasses from models.py
   4. Assembles everything into a single FishData container
@@ -53,7 +53,7 @@ async def fetch_raw_data(url: str = DATA_URL) -> str:
 def _js_to_dict(content: str) -> dict:
     """Decode lenient JavaScript object syntax into a Python dict via demjson3.
 
-    The tracker site uses raw JS object/array syntax (not strict JSON),
+    The tracker repo uses raw JS object/array syntax (not strict JSON),
     so standard json.loads() would fail. demjson3 handles trailing commas,
     single quotes, unquoted keys, etc.
     """
@@ -215,7 +215,7 @@ async def load_fish_data(
     data_url: str = DATA_URL,
     info_url: str | None = None,
 ) -> FishData:
-    """Fetch, parse, and build a FishData object from the tracker site's JS files.
+    """Fetch, parse, and build a FishData object from the tracker repo's JS files.
 
     This is the main entry point, called by __main__.py:
       1. Fetch main data.js → parse_data_js

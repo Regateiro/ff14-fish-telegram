@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 async def refresh_fish_data(application: Application) -> None:
-    """Fetch the latest fish/weather data from the tracker site and store it in bot_data.
+    """Fetch the latest fish/weather data from the tracker repo and store it in bot_data.
 
     This is called:
       - Once at startup (from post_init)
@@ -42,7 +42,7 @@ async def refresh_fish_data(application: Application) -> None:
     and is subsequently read by bot/handlers.py and bot/reminders.py
     via context.bot_data.
     """
-    logger.info("Refreshing fish data from tracker site...")
+    logger.info("Refreshing fish data from tracker repo...")
     try:
         data = await load_fish_data()
         application.bot_data[BOT_DATA_KEY] = data
@@ -69,7 +69,7 @@ async def post_init(application: Application) -> None:
 
     This callback is wired via ApplicationBuilder.post_init(). It:
       1. Creates SQLite tables via init_db()
-      2. Loads fish data from the remote tracker site
+       2. Loads fish data from the remote tracker repo
       3. Sets up three APScheduler recurring jobs:
          - Fish data refresh every FETCH_INTERVAL_HOURS
          - Reminder check every minute
