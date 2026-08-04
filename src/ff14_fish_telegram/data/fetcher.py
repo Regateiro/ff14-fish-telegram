@@ -16,8 +16,9 @@ import time
 
 import aiohttp
 import demjson3
+import yaml
 
-from ff14_fish_telegram.config import DATA_CACHE_PATH, DATA_URL
+from ff14_fish_telegram.config import ADJUSTMENTS_URL, DATA_CACHE_PATH, DATA_URL
 from ff14_fish_telegram.data.models import (
     Fish,
     FishData,
@@ -84,6 +85,98 @@ def parse_fish_info_js(content: str) -> dict[int, str]:
         raise ValueError("Could not find FISH_INFO constant in JS file")
     info_list = _js_to_dict(match.group(1))
     return {entry["id"]: entry.get("name_en", "") for entry in info_list}
+
+
+async def fetch_adjustments(url: str = ADJUSTMENTS_URL) -> list[dict]:
+    """Fetch the adjustments YAML from the gh-pages branch.
+
+    The tracker repo maintains a Jekyll data file (_data/adjustments.yaml)
+    that contains manual overrides for newly added fish whose conditions
+    are not yet in the main data.js. The site renders this into inline JS
+    at build time; the bot fetches it directly to apply the same overrides.
+
+    Returns an empty list if the fetch fails (non-fatal).
+    """
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                resp.raise_for_status()
+                text = await resp.text()
+                data = yaml.safe_load(text)
+                return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.warning("Failed to fetch adjustments from %s: %s", url, e)
+        return []
+
+
+def apply_adjustments(fish_data: FishData, adjustments: list[dict]) -> int:
+    """Apply manual adjustments to fish data, returning the number of fish patched.
+
+    The adjustments YAML uses weather/bait names; this function converts them
+    to IDs using fish_data.weather_types and fish_data.items. Fish are matched
+    by name_en.
+
+    Adjustments override: start_hour, end_hour, weather_set, previous_weather_set,
+    hookset, lure, tug, snagging, best_catch_path. The data_missing flag is
+    cleared when conditions are patched.
+    """
+    if not adjustments:
+        return 0
+
+    weather_name_to_id = {name: wid for wid, name in fish_data.weather_types.items()}
+    item_name_to_id = {item.name_en: item.id for item in fish_data.items.values()}
+    fish_by_name = {fish.name_en: fish for fish in fish_data.fish.values()}
+
+    patched = 0
+    for adj in adjustments:
+        name = adj.get("name")
+        if not name or name not in fish_by_name:
+            continue
+        fish = fish_by_name[name]
+
+        if "startHour" in adj:
+            fish.start_hour = float(adj["startHour"])
+        if "endHour" in adj:
+            fish.end_hour = float(adj["endHour"])
+        if "weatherSet" in adj:
+            weather_ids = []
+            for wname in adj["weatherSet"]:
+                if wname in weather_name_to_id:
+                    weather_ids.append(weather_name_to_id[wname])
+            fish.weather_set = weather_ids
+        if "previousWeatherSet" in adj:
+            weather_ids = []
+            for wname in adj["previousWeatherSet"]:
+                if wname in weather_name_to_id:
+                    weather_ids.append(weather_name_to_id[wname])
+            fish.previous_weather_set = weather_ids
+        if "hookset" in adj:
+            fish.hookset = adj["hookset"]
+        if "lure" in adj:
+            fish.lure = adj["lure"]
+        if "tug" in adj:
+            fish.tug = adj["tug"]
+        if "snagging" in adj:
+            fish.snagging = adj["snagging"]
+        if "bait" in adj:
+            item_ids = []
+            for bname in adj["bait"]:
+                if bname in item_name_to_id:
+                    item_ids.append(item_name_to_id[bname])
+            fish.best_catch_path = item_ids
+
+        has_conditions = (
+            fish.weather_set
+            or fish.previous_weather_set
+            or fish.start_hour != 0
+            or fish.end_hour != 24
+        )
+        if has_conditions:
+            fish.data_missing = None
+
+        patched += 1
+
+    return patched
 
 
 # ── Raw → dataclass converters ──────────────────────────────────────
@@ -252,6 +345,14 @@ async def load_fish_data(
         fish_names = parse_fish_info_js(raw_info)
     except Exception as e:
         logger.warning("Failed to fetch fish names from %s: %s", info_url, e)
-    return build_fish_data(parsed, fish_names)
+
+    fish_data = build_fish_data(parsed, fish_names)
+
+    adjustments = await fetch_adjustments()
+    if adjustments:
+        patched = apply_adjustments(fish_data, adjustments)
+        logger.info("Applied %d fish adjustments from %s", patched, ADJUSTMENTS_URL)
+
+    return fish_data
 
 

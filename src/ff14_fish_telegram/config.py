@@ -26,6 +26,11 @@ DATA_URL: str = os.environ.get(
     "https://raw.githubusercontent.com/icykoneko/ff14-fish-tracker-app/master/js/app/data.js",
 )
 
+ADJUSTMENTS_URL: str = os.environ.get(
+    "ADJUSTMENTS_URL",
+    "https://raw.githubusercontent.com/icykoneko/ff14-fish-tracker-app/gh-pages/_data/adjustments.yaml",
+)
+
 # Path to a local cache file for the raw fish data JS.
 # When the remote source is unavailable, fetcher.py falls back to this file.
 DATA_CACHE_PATH: Path = Path(

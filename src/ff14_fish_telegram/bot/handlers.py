@@ -205,8 +205,12 @@ async def day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     end = datetime.fromtimestamp(now.timestamp() + 86400, tz=timezone.utc)
 
     upcoming: list[tuple[str, CatchableWindow, Fish]] = []
+    undetermined = 0
     for fish in fish_data.fish.values():
         if fish.id in caught_ids:
+            continue
+        if fish.restrictions_unknown:
+            undetermined += 1
             continue
         windows = compute_catchable_windows(fish, fish_data, from_time=now, max_windows=1)
         if windows and windows[0].start_earth < end:
@@ -218,8 +222,15 @@ async def day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     upcoming.sort(key=lambda x: x[1].start_earth)
 
+    note = ""
+    if undetermined:
+        note = (
+            f"\n\nℹ️ {undetermined} uncaught fish have undetermined conditions "
+            f"(their windows are still being researched) and are not listed."
+        )
+
     await update.message.reply_text(
-        f"Uncaught fish available in the next 24h ({len(upcoming)}):"
+        f"Uncaught fish available in the next 24h ({len(upcoming)}):{note}"
     )
 
     for name, window, fish in upcoming:

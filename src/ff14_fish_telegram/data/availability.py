@@ -299,6 +299,9 @@ def compute_catchable_windows(
     Returns:
         A list of CatchableWindow sorted chronologically.
     """
+    if fish.restrictions_unknown:
+        return []
+
     if fish.always_available:
         now = from_time or datetime.now(timezone.utc)
         earth_ts = now.timestamp()

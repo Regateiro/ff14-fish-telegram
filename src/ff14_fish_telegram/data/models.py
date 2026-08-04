@@ -78,8 +78,31 @@ class Fish:
         return bool(self.predators) or self.intuition_length is not None
 
     @property
+    def restrictions_unknown(self) -> bool:
+        """Whether this fish's time/weather restrictions are not yet documented.
+
+        The tracker repo marks newly added legendary fish with a
+        dataMissing dict (e.g. {"timeRestricted": True,
+        "weatherRestricted": True}) while their exact catch windows are
+        still being researched. Their start/end hours and weather sets
+        are empty placeholders, so they must not be treated as always
+        available or scheduled for windows.
+
+        Used by:
+          - data/availability.py to short-circuit window computation
+          - bot/handlers.py's /day command to flag undetermined fish
+        """
+        missing = self.data_missing
+        if not isinstance(missing, dict):
+            return False
+        return bool(missing.get("timeRestricted") or missing.get("weatherRestricted"))
+
+    @property
     def always_available(self) -> bool:
         """Whether this fish has no time or weather restrictions.
+
+        A fish whose restrictions are still being researched
+        (restrictions_unknown) is never treated as always available.
 
         Used by:
           - data/availability.py to short-circuit window computation
@@ -91,6 +114,7 @@ class Fish:
             and self.end_hour == 24
             and not self.weather_set
             and not self.previous_weather_set
+            and not self.restrictions_unknown
         )
 
 

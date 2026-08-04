@@ -53,6 +53,24 @@ class TestFishModelProperties:
     def test_always_available_false_time(self, sample_fish):
         assert sample_fish.always_available is False
 
+    def test_restrictions_unknown_flag(self, sample_fish):
+        sample_fish.start_hour = 0
+        sample_fish.end_hour = 24
+        assert sample_fish.restrictions_unknown is False
+        assert sample_fish.always_available is True
+
+        sample_fish.data_missing = {"timeRestricted": True, "weatherRestricted": True}
+        assert sample_fish.restrictions_unknown is True
+        assert sample_fish.always_available is False
+
+    def test_restrictions_unknown_ignores_unrelated_flags(self, sample_fish):
+        sample_fish.data_missing = {"weatherRestricted": False}
+        assert sample_fish.restrictions_unknown is False
+
+    def test_restrictions_unknown_none(self, sample_fish):
+        sample_fish.data_missing = None
+        assert sample_fish.restrictions_unknown is False
+
     def test_has_intuition_or_predator_with_predators(self, fish_with_intuition):
         assert fish_with_intuition.has_intuition_or_predator is True
 
@@ -142,6 +160,21 @@ class TestCatchableWindows:
         f.location_id = 99999
         w = get_next_window(f, sample_fish_data)
         assert w is None
+
+    def test_restrictions_unknown_returns_no_windows(self, sample_fish, sample_fish_data):
+        f = sample_fish
+        f.start_hour = 0
+        f.end_hour = 24
+        f.data_missing = {"timeRestricted": True, "weatherRestricted": True}
+        windows = compute_catchable_windows(f, sample_fish_data, max_windows=1)
+        assert windows == []
+
+    def test_restrictions_unknown_next_window_none(self, sample_fish, sample_fish_data):
+        f = sample_fish
+        f.start_hour = 0
+        f.end_hour = 24
+        f.data_missing = {"weatherRestricted": True}
+        assert get_next_window(f, sample_fish_data) is None
 
 
 class TestWeatherFunctions:

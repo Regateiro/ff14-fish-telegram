@@ -516,6 +516,68 @@ class TestDayHandler:
         first_content = calls[0][0][0]
         assert "Uncaught fish available" in first_content
 
+    @pytest.mark.asyncio
+    async def test_undetermined_fish_not_listed(self, mocker):
+        fd = _make_fish_data()
+        fd.fish[4898].start_hour = 0
+        fd.fish[4898].end_hour = 24
+        fd.fish[4898].data_missing = {"timeRestricted": True, "weatherRestricted": True}
+        update = mocker.Mock(spec=Update)
+        update.effective_user.id = 1001
+        update.message.reply_text = mocker.AsyncMock()
+        context = mocker.Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = []
+        context.bot_data = {BOT_DATA_KEY: fd}
+
+        from ff14_fish_telegram.bot.handlers import day
+
+        await day(update, context)
+        update.message.reply_text.assert_awaited_once_with(
+            "No uncaught fish available in the next 24 hours."
+        )
+
+    @pytest.mark.asyncio
+    async def test_undetermined_fish_note_in_summary(self, mocker):
+        fd = _make_fish_data()
+        fd.fish[4898].data_missing = {"timeRestricted": True, "weatherRestricted": True}
+        fd.fish[4911] = Fish(
+            id=4911,
+            name_en="Always Up Fish",
+            start_hour=0,
+            end_hour=24,
+            patch=2.0,
+            big_fish=False,
+            collectable=None,
+            weather_set=[],
+            previous_weather_set=[],
+            location_id=52,
+            best_catch_path=[],
+            predators=[],
+            intuition_length=None,
+            fish_eyes=False,
+            folklore=None,
+            snagging=None,
+            lure=None,
+            hookset=None,
+            tug=None,
+            gig=None,
+            data_missing=None,
+            aquarium=None,
+        )
+        update = mocker.Mock(spec=Update)
+        update.effective_user.id = 1001
+        update.message.reply_text = mocker.AsyncMock()
+        context = mocker.Mock(spec=ContextTypes.DEFAULT_TYPE)
+        context.args = []
+        context.bot_data = {BOT_DATA_KEY: fd}
+
+        from ff14_fish_telegram.bot.handlers import day
+
+        await day(update, context)
+        first_msg = update.message.reply_text.call_args_list[0][0][0]
+        assert "Uncaught fish available in the next 24h (1)" in first_msg
+        assert "1 uncaught fish have undetermined conditions" in first_msg
+
 
 class TestCaughtCallback:
     """Tests for inline button callback (caught:<fish_id>)."""

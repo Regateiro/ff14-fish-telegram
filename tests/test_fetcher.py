@@ -3,10 +3,13 @@
 import pytest
 
 from ff14_fish_telegram.data.fetcher import (
+    apply_adjustments,
     build_fish_data,
+    fetch_adjustments,
     parse_data_js,
     parse_fish_info_js,
 )
+from ff14_fish_telegram.data.models import Item
 
 
 class TestParseDataJs:
@@ -214,3 +217,129 @@ class TestLoadFishData:
 
         with pytest.raises(RuntimeError, match="no usable cache"):
             await load_fish_data(data_url="http://example.com/data.js")
+
+
+class TestFetchAdjustments:
+    """Tests for fetching the adjustments YAML."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_success(self, mocker):
+        yaml_content = "- name: Test Fish\n  startHour: 10\n  endHour: 14\n"
+        mock_resp = mocker.MagicMock()
+        mock_resp.__aenter__.return_value = mock_resp
+        mock_resp.text = mocker.AsyncMock(return_value=yaml_content)
+        mock_resp.raise_for_status = mocker.MagicMock()
+        mock_session = mocker.MagicMock()
+        mock_session.__aenter__.return_value = mock_session
+        mock_session.get.return_value = mock_resp
+
+        mocker.patch("aiohttp.ClientSession", return_value=mock_session)
+
+        result = await fetch_adjustments("http://example.com/adjustments.yaml")
+        assert len(result) == 1
+        assert result[0]["name"] == "Test Fish"
+        assert result[0]["startHour"] == 10
+
+    @pytest.mark.asyncio
+    async def test_fetch_returns_empty_on_error(self, mocker):
+        mock_resp = mocker.MagicMock()
+        mock_resp.__aenter__.return_value = mock_resp
+        mock_resp.raise_for_status.side_effect = Exception("HTTP 404")
+        mock_session = mocker.MagicMock()
+        mock_session.__aenter__.return_value = mock_session
+        mock_session.get.return_value = mock_resp
+
+        mocker.patch("aiohttp.ClientSession", return_value=mock_session)
+
+        result = await fetch_adjustments("http://example.com/adjustments.yaml")
+        assert result == []
+
+
+class TestApplyAdjustments:
+    """Tests for applying manual adjustments to fish data."""
+
+    def test_apply_time_override(self, sample_fish_data):
+        adjustments = [{"name": "Merlthor Goby", "startHour": 10, "endHour": 14}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.start_hour == 10
+        assert fish.end_hour == 14
+
+    def test_apply_weather_override(self, sample_fish_data):
+        sample_fish_data.weather_types[5] = "Wind"
+        adjustments = [{"name": "Merlthor Goby", "weatherSet": ["Wind"]}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.weather_set == [5]
+
+    def test_apply_previous_weather_override(self, sample_fish_data):
+        sample_fish_data.weather_types[3] = "Fog"
+        adjustments = [{"name": "Merlthor Goby", "previousWeatherSet": ["Fog"]}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.previous_weather_set == [3]
+
+    def test_apply_bait_override(self, sample_fish_data):
+        sample_fish_data.items[2600] = Item(id=2600, name_en="Red Maggots")
+        adjustments = [{"name": "Merlthor Goby", "bait": ["Red Maggots"]}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.best_catch_path == [2600]
+
+    def test_apply_hookset_override(self, sample_fish_data):
+        adjustments = [{"name": "Merlthor Goby", "hookset": "Powerful"}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.hookset == "Powerful"
+
+    def test_apply_lure_override(self, sample_fish_data):
+        adjustments = [{"name": "Merlthor Goby", "lure": "Modest"}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.lure == "Modest"
+
+    def test_clears_data_missing_when_conditions_added(self, sample_fish_data):
+        sample_fish_data.fish[4898].data_missing = {
+            "timeRestricted": True,
+            "weatherRestricted": True,
+        }
+        adjustments = [{"name": "Merlthor Goby", "startHour": 10, "endHour": 14}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.data_missing is None
+        assert fish.restrictions_unknown is False
+
+    def test_skips_unknown_fish(self, sample_fish_data):
+        adjustments = [{"name": "Nonexistent Fish", "startHour": 10}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 0
+
+    def test_skips_missing_name(self, sample_fish_data):
+        adjustments = [{"startHour": 10}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 0
+
+    def test_returns_zero_for_empty_adjustments(self, sample_fish_data):
+        patched = apply_adjustments(sample_fish_data, [])
+        assert patched == 0
+
+    def test_ignores_unknown_weather_names(self, sample_fish_data):
+        adjustments = [{"name": "Merlthor Goby", "weatherSet": ["Unknown Weather"]}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.weather_set == []
+
+    def test_ignores_unknown_bait_names(self, sample_fish_data):
+        adjustments = [{"name": "Merlthor Goby", "bait": ["Unknown Bait"]}]
+        patched = apply_adjustments(sample_fish_data, adjustments)
+        assert patched == 1
+        fish = sample_fish_data.fish[4898]
+        assert fish.best_catch_path == []

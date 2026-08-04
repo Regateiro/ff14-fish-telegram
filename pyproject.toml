@@ -12,6 +12,7 @@ aiohttp = ">=3,<4"
 apscheduler = ">=3,<4"
 python-dotenv = ">=1,<2"
 demjson3 = ">=3,<4"
+pyyaml = "^6.0.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=9.1.1,<10"
