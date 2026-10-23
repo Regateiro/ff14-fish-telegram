@@ -1,4 +1,5 @@
 .env
+data_cache.js
 __pycache__/
 *.py[cod]
 *.egg-info/
